@@ -144,7 +144,9 @@ class Downloader:
                         hash_value = hashlib.sha256()
                         # Always restart: no remote identity validated for Range resumption.
                         fd = os.open(
-                            part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600
+                            part,
+                            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                            0o600,
                         )
                         with os.fdopen(fd, "wb") as stream:
                             for chunk in response.iter_bytes(1024 * 1024):
@@ -161,6 +163,9 @@ class Downloader:
                         if expected and actual != expected:
                             raise DownloadError("SHA-256 mismatch")
                         os.replace(part, target)
+                        from getcraft.archive import fsync_directory
+
+                        fsync_directory(target.parent)
                         return actual
                 raise DownloadError("Too many asset redirects")
             except (httpx.TransportError, httpx.HTTPStatusError):

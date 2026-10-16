@@ -16,7 +16,7 @@ def inventory(root: Path) -> list[dict]:
             not isinstance(row, dict)
             or not isinstance(row.get("repository"), str)
             or not isinstance(row.get("release_id"), int)
-            or row.get("status") not in {"partial", "complete", "verified"}
+            or row.get("status") not in {"partial", "complete", "verified", "failed"}
         ):
             raise ValueError("Invalid inventory release entry")
     return data["releases"]

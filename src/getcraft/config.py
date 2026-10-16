@@ -37,6 +37,32 @@ def load(path: Path) -> dict:
         seen.add(key)
         if not isinstance(repo.get("enabled", True), bool):
             raise ValueError("enabled must be boolean")
+    defaults = data.get("selection", {})
+    platform_flags = data.get("platforms", {})
+    if not isinstance(platform_flags, dict) or any(
+        key not in {"windows", "macos", "linux"} or not isinstance(value, bool)
+        for key, value in platform_flags.items()
+    ):
+        raise ValueError("platforms must contain boolean windows/macos/linux flags")
+    for settings in [defaults, *data["repositories"]]:
+        if not isinstance(settings, dict):
+            raise ValueError("Invalid selection settings")
+        for key in ("platforms", "architectures", "formats", "include_assets", "exclude_assets"):
+            if key in settings and (
+                not isinstance(settings[key], list)
+                or not all(isinstance(v, str) and v for v in settings[key])
+            ):
+                raise ValueError(f"{key} must be a list of nonempty strings")
+        if "platforms" in settings and not set(settings["platforms"]) <= {
+            "windows",
+            "macos",
+            "linux",
+        }:
+            raise ValueError("Unsupported platform")
+        if "keep_versions" in settings and (
+            type(settings["keep_versions"]) is not int or settings["keep_versions"] < 1
+        ):
+            raise ValueError("keep_versions must be a positive integer")
     return data
 
 

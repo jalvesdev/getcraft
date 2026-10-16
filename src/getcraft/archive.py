@@ -1,6 +1,5 @@
 """Safe archive paths, atomic manifests, locking, and offline inspection."""
 
-import fcntl
 import json
 import os
 import re
@@ -57,6 +56,17 @@ def safe(root: Path, relative: str) -> Path:
     return target
 
 
+def fsync_directory(path: Path) -> None:
+    # Windows fsync supports files, not directory handles through os.open.
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def atomic_json(path: Path, data: dict) -> None:
     if path.is_symlink():
         raise ValueError("Symlink metadata rejected")
@@ -69,11 +79,7 @@ def atomic_json(path: Path, data: dict) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -82,11 +88,20 @@ def atomic_json(path: Path, data: dict) -> None:
 def lock(root: Path):
     path = safe(root, ".getcraft.lock")
     root.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if os.name == "nt":
+                import msvcrt
+
+                os.write(descriptor, b"0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
             raise ValueError("Archive is locked by another GetCraft process") from None
         yield
     finally:
@@ -99,6 +114,8 @@ def read_manifest(path: Path) -> dict:
         if data["schema_version"] != 2 or type(data["release_id"]) is not int:
             raise ValueError("Unsupported manifest schema")
         repository_name(data["repository"])
+        if not isinstance(data["version"], str) or not isinstance(data["warnings"], list):
+            raise ValueError("Invalid manifest metadata")
         segment(data["tag"])
         if data["status"] not in {"complete", "partial", "failed"}:
             raise ValueError("Invalid release status")
@@ -116,6 +133,19 @@ def read_manifest(path: Path) -> dict:
                 or asset["path"] in seen
             ):
                 raise ValueError("Invalid manifest asset")
+            if Path(asset["path"]).name != asset["name"]:
+                raise ValueError("Asset path differs from original filename")
+            for field in ("url", "platform", "architecture", "format"):
+                if not isinstance(asset[field], str):
+                    raise ValueError("Invalid asset metadata")
+            if asset.get("official_digest") is not None and not isinstance(
+                asset["official_digest"], str
+            ):
+                raise ValueError("Invalid official digest")
+            if asset.get("published_sha256") is not None and not re.fullmatch(
+                "[a-f0-9]{64}", asset["published_sha256"]
+            ):
+                raise ValueError("Invalid published SHA-256")
             seen.add(asset["path"])
             if asset.get("sha256") is not None and not re.fullmatch(
                 "[a-f0-9]{64}", asset["sha256"]
@@ -153,10 +183,15 @@ def inspect(root: Path, repository: str | None = None) -> tuple[list[dict], list
     if not root.exists():
         return rows, errors
     safe(root, ".getcraft.lock")
-    for path in sorted(root.glob("*/*/*/manifest.json")):
+    for directory in sorted(root.glob("*/*/*")):
+        if not directory.is_dir() and not directory.is_symlink():
+            continue
+        path = directory / "manifest.json"
         relative = path.relative_to(root).as_posix()
         try:
             safe(root, relative)
+            if not path.exists():
+                raise ValueError("Missing release manifest")
             data = read_manifest(path)
             expected_dir = f"{data['repository']}/{data['tag']}"
             if path.parent.relative_to(root).as_posix() != expected_dir:
@@ -181,6 +216,7 @@ def inspect(root: Path, repository: str | None = None) -> tuple[list[dict], list
                 "status": "partial" if problems else "complete",
                 "manifest": relative,
                 "problems": problems,
+                "missing_platforms": data.get("missing_platforms", []),
             }
             rows.append(row)
         except (ValueError, OSError) as error:
