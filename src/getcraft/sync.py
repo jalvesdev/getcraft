@@ -131,7 +131,11 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
                 )
                 reused += 1
             else:
-                expected = expected or official_sha256(asset.get("official_digest"))
+                expected = (
+                    expected
+                    or official_sha256(asset.get("official_digest"))
+                    or (prior.get("sha256") if prior else None)
+                )
                 # Orphan files without known digests cannot be silently replaced/adopted.
                 digest = downloader.fetch(
                     asset, target, expected, repair=bool(prior and file_problem(root, prior))

@@ -373,3 +373,17 @@ def test_api_failure_preserves_backup(config, tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["--config", str(path), "sync"])
     assert result.exit_code == 1
     assert next(root.glob("**/manifest.json")).read_bytes() == before
+
+
+def test_repair_without_official_digest_preserves_recorded_content_identity(config, tmp_path):
+    root = tmp_path / "archive"
+    data = release([remote_asset(digest=False)])
+    run_sync(config, root, data=data)
+    path = next(root.glob("**/*.exe"))
+    path.write_bytes(b"broken")
+    report = run_sync(config, root, lambda r: httpx.Response(200, content=b"X" * len(BODY)), data)[
+        0
+    ]
+    assert report["status"] == "failed"
+    assert path.read_bytes() == b"broken"
+    assert "SHA-256 mismatch" in report["failures"][0]
