@@ -26,13 +26,13 @@ def snapshot(root: Path) -> dict:
     safe(root, ".getcraft.lock")
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
+        safe(root, relative)
         if (
             relative == ".getcraft.lock"
             or relative == ".getcraft"
             or relative.startswith(".getcraft/")
         ):
-            continue  # Audit records are the only files our apply phase adds.
-        safe(root, relative)
+            continue  # Runtime records are excluded, but their paths must still be safe.
         info = path.lstat()
         if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
             raise ValueError("Special archive file rejected")

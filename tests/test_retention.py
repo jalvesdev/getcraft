@@ -275,3 +275,13 @@ def test_json_plan_is_machine_readable_and_read_only(archive_fixture, tmp_path, 
     assert result.exit_code == 0, result.output
     assert len(json.loads(result.output)["candidates"]) == 2
     assert snapshot(root) == before
+
+
+def test_symlink_in_runtime_directory_also_blocks_planning(archive_fixture, tmp_path):
+    root, config, _, _, api = fill(archive_fixture)
+    target = tmp_path / "external-audit"
+    target.mkdir()
+    (root / ".getcraft").symlink_to(target, target_is_directory=True)
+    with api() as github, pytest.raises(ValueError, match="Symlink"):
+        prepare(root, config, config["repositories"], github)
+    assert list(target.iterdir()) == []
