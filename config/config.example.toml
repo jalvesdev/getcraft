@@ -1,0 +1,18 @@
+[archive]
+path = "~/SoftwareArchive"
+keep_versions = 3
+include_prereleases = false
+include_drafts = false
+download_source_code = false
+prune_after_sync = false
+
+[platforms]
+windows = true
+macos = true
+linux = true
+
+[[repositories]]
+name = "PhotoCraft"
+owner = "storytold"
+repo = "photocraft"
+enabled = true
