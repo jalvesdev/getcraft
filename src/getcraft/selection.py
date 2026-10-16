@@ -211,6 +211,9 @@ def plan_release(config: dict, project: dict, release: dict) -> dict:
             warnings.append(f"{name}: unsupported official digest; preserved without validation")
     return {
         "schema_version": 2,
+        "name": project.get("name", repository),
+        "prerelease": release.get("prerelease", False),
+        "draft": release.get("draft", False),
         "repository": repository,
         "release_id": release["id"],
         "release_url": release.get("html_url"),

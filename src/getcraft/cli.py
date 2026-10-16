@@ -12,6 +12,7 @@ from getcraft.archive import inspect, lock, rebuild, segment
 from getcraft.config import default_path, load, save
 from getcraft.download import Downloader
 from getcraft.github import GitHub, repository_name
+from getcraft.reports import backfill_readmes, collect, record_sync, render, write_report
 from getcraft.retention import apply as apply_prune
 from getcraft.retention import prepare
 from getcraft.selection import classify, ordered
@@ -80,6 +81,8 @@ def change(ctx, repository, action, dry_run):
     if not matches:
         raise ValueError("Repository not registered")
     if action == "remove":
+        if matches[0].get("pinned_versions"):
+            raise ValueError("Repository has pinned versions; disable monitoring or unpin first")
         data["repositories"].remove(matches[0])
     else:
         matches[0]["enabled"] = action == "enable"
@@ -185,9 +188,11 @@ def sync(
     root = Path(data["archive"]["path"]).expanduser().absolute()
     projects = selected_projects(data, repo, all_repos)
 
+    known = {}
+
     def discover():
         with GitHub() as github:
-            plans, messages = build_plans(data, projects, github)
+            plans, messages = build_plans(data, projects, github, known)
         for message in messages:
             console.print(f"Warning: {message}")
         for plan in plans:
@@ -218,6 +223,7 @@ def sync(
         plans = discover()
         with Downloader() as downloader:
             reports = synchronize(root, plans, downloader)
+        record_sync(root, known, reports)
         failed = False
         for report in reports:
             console.print(
@@ -363,13 +369,16 @@ def prune(
         raise ValueError("--dry-run and --apply are mutually exclusive")
     if yes and not apply:
         raise ValueError("--yes requires --apply")
+    if apply and json_plan:
+        raise ValueError("--json-plan is a simulation output; use it without --apply")
     data = load(ctx.obj)
     root = Path(data["archive"]["path"]).expanduser().absolute()
     projects = selected_projects(data, repo, all_repos)
     with GitHub() as github:
         plan = prepare(root, data, projects, github)
     if json_plan:
-        console.print(json.dumps(plan, ensure_ascii=False, indent=2), soft_wrap=True)
+        typer.echo(json.dumps(plan, ensure_ascii=False, indent=2))
+        return
     else:
         console.print(f"Prune plan {plan['plan_id']}")
         for candidate in plan["candidates"]:
@@ -400,3 +409,37 @@ def prune(
         f"Removed {result['removed_releases']} releases, {result['removed_bytes']} bytes. "
         f"Audit: {result['audit']}"
     )
+
+
+@app.command()
+@handled
+def report(
+    ctx: typer.Context,
+    format: str = "markdown",
+    output: str | None = None,
+    write_readmes: bool = False,
+    dry_run: bool = False,
+):
+    """Render an offline catalog; --output writes a managed file at the archive root."""
+    if format not in {"json", "markdown", "html"}:
+        raise ValueError("Unsupported report format; use json, markdown or html")
+    data = load(ctx.obj)
+    root = Path(data["archive"]["path"]).expanduser().absolute()
+
+    def generate():
+        warnings = backfill_readmes(root) if write_readmes and not dry_run else []
+        catalog = collect(root, data)
+        catalog["problems"].extend(warnings)
+        text = render(catalog, format, root, root)
+        if output and not dry_run:
+            target = write_report(root, output, text)
+            console.print(f"Report saved: {target}")
+        else:
+            # Disable Rich wrapping/highlighting so JSON and HTML remain machine-readable.
+            typer.echo(text, nl=False)
+
+    if dry_run or not root.exists() and not output and not write_readmes:
+        generate()
+    else:
+        with lock(root):
+            generate()

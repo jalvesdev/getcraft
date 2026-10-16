@@ -67,21 +67,24 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def atomic_json(path: Path, data: dict) -> None:
+def atomic_text(path: Path, text: str) -> None:
     if path.is_symlink():
         raise ValueError("Symlink metadata rejected")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".getcraft-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as stream:
-            json.dump(data, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def atomic_json(path: Path, data: dict) -> None:
+    atomic_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 @contextmanager
@@ -205,6 +208,10 @@ def inspect(root: Path, repository: str | None = None) -> tuple[list[dict], list
                 problem = file_problem(root, asset)
                 if problem:
                     problems.append(f"{asset['name']}: {problem}")
+            if data.get("readme_sha256"):
+                readme = safe(root, expected_dir + "/README.md")
+                if not readme.is_file() or sha256(readme) != data["readme_sha256"]:
+                    problems.append("Generated README missing or modified")
             if data["unresolved"]:
                 problems.append("Unresolved asset classifications")
             if not data["assets"] or data["status"] != "complete":

@@ -11,16 +11,31 @@ from getcraft.archive import (
     safe,
 )
 from getcraft.download import Downloader, checksums, official_sha256
+from getcraft.reports import write_readme
 from getcraft.selection import ordered, plan_release
 
 
-def build_plans(config: dict, projects: list[dict], github) -> tuple[list[dict], list[str]]:
+def build_plans(
+    config: dict, projects: list[dict], github, known: dict | None = None
+) -> tuple[list[dict], list[str]]:
     plans, messages = [], []
     for project in projects:
         name = f"{project['owner']}/{project['repo']}"
-        releases, warnings = ordered(
-            github.releases(name), config["archive"]["include_prereleases"]
-        )
+        remote = github.releases(name)
+        releases, warnings = ordered(remote, config["archive"]["include_prereleases"])
+        if known is not None:
+            stable, _ = ordered(remote)
+            latest = stable[0] if stable else None
+            known[name] = {
+                "observed_at": now(),
+                "latest": {
+                    "tag": latest["tag_name"],
+                    "release_id": latest["id"],
+                    "published_at": latest.get("published_at"),
+                }
+                if latest
+                else None,
+            }
         messages.extend(f"{name}: {w}" for w in warnings)
         known_ids = set()
         root = Path(config["archive"]["path"]).expanduser().absolute()
@@ -181,6 +196,9 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
     )
     plan["archived_at"] = now()
     plan["warnings"] = list(dict.fromkeys(plan["warnings"]))
+    if old and old.get("readme_sha256"):
+        plan["readme_sha256"] = old["readme_sha256"]
+    write_readme(root, plan)
     atomic_json(safe(root, f"{plan['repository']}/{plan['tag']}/manifest.json"), plan)
     return {
         "repository": plan["repository"],
