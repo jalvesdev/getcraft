@@ -1,10 +1,10 @@
 # Implementation plan
 
 ## M0 — Scaffold
-- [ ] Initialize Python package with `pyproject.toml`, lint, tests, and CLI entry point.
-- [ ] Add TOML configuration loader, sample config, and `.gitignore`.
-- [ ] Configure GitHub Actions test workflow.
-- [ ] Commit: `chore: scaffold getcraft project`.
+- [x] Initialize Python package with `pyproject.toml`, lint, tests, and CLI entry point.
+- [x] Add TOML configuration loader, sample config, and `.gitignore`.
+- [x] Configure GitHub Actions test workflow.
+- [x] Commit: `chore: scaffold getcraft project`.
 
 ## M1 — Registry and discovery
 - [ ] Implement `repo add/list/enable/disable/remove` with validation.

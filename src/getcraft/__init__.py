@@ -1,0 +1,1 @@
+"""GetCraft release discovery."""
