@@ -19,6 +19,7 @@ from getcraft.archive import (
     safe,
 )
 from getcraft.download import sha256
+from getcraft.storage import inventory
 
 
 def md(value: object) -> str:
@@ -195,6 +196,10 @@ def read_knowledge(root: Path) -> tuple[dict, list[str]]:
 
             if repository_name(name) != name or not isinstance(project, dict):
                 raise ValueError("Invalid project knowledge")
+            if not isinstance(project.get("results", []), list) or not all(
+                isinstance(result, dict) for result in project.get("results", [])
+            ):
+                raise ValueError("Invalid synchronization results")
             latest = project.get("latest")
             if latest is not None and (
                 not isinstance(latest, dict)
@@ -232,6 +237,14 @@ def collect(root: Path, config: dict) -> dict:
     rows, errors = inspect(root)
     known, knowledge_errors = read_knowledge(root)
     errors.extend(knowledge_errors)
+    index = safe(root, "inventory.json")
+    if rows and not index.exists():
+        errors.append("Inventory missing; run verify --rebuild-inventory")
+    elif index.exists():
+        try:
+            inventory(root)
+        except (ValueError, OSError) as error:
+            errors.append(f"Inventory unreadable; run verify --rebuild-inventory: {error}")
     registered = {f"{p['owner']}/{p['repo']}": p for p in config["repositories"]}
     names = sorted(set(registered) | {r["repository"] for r in rows} | set(known))
     projects = []
@@ -249,6 +262,12 @@ def collect(root: Path, config: dict) -> dict:
             "bytes": 0,
             "releases": [],
         }
+        project["problems"] = [
+            f"Last sync {result.get('tag', '')}: {message}"
+            for result in project["sync_results"]
+            if result.get("status") != "complete"
+            for message in result.get("failures", ["Incomplete synchronization"])
+        ]
         for row in rows:
             if row["repository"] != name:
                 continue
@@ -329,6 +348,8 @@ def render_markdown(data: dict, root: Path, parent: Path) -> str:
             "Pinned tags: " + (", ".join(md(t) for t in project["pinned_versions"]) or "none"),
             "",
         ]
+        lines.extend("- Sync problem: " + md(p) for p in project["problems"])
+        lines.append("")
         for release in project["releases"]:
             lines += [f"### {md(release['tag'])} — {release['status']}", ""]
             if release.get("readme"):
@@ -376,6 +397,8 @@ def render_html(data: dict, root: Path, parent: Path) -> str:
             f"<p>Latest known: {e(latest.get('tag') if latest else 'unknown (not queried)')}; last sync: {e(project['last_sync'] or 'unknown')}</p>",
             "<p>Pinned tags: " + e(", ".join(project["pinned_versions"]) or "none") + "</p>",
         ]
+        for problem in project["problems"]:
+            lines.append("<p>Sync problem: " + e(problem) + "</p>")
         for release in project["releases"]:
             lines += [
                 f"<h3>{e(release['tag'])} — {e(release['status'])}{' (pinned)' if release['pinned'] else ''}</h3>",

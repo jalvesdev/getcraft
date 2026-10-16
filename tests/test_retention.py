@@ -263,3 +263,15 @@ def test_arbitrary_plan_cannot_authorize_unknown_deletion(archive_fixture):
     with api() as github, pytest.raises(ValueError, match="changed"):
         apply(root, config, config["repositories"], plan, github)
     assert (root / "storytold/photocraft/v1.0").exists()
+
+
+def test_json_plan_is_machine_readable_and_read_only(archive_fixture, tmp_path, monkeypatch):
+    root, config, _, _, api = fill(archive_fixture)
+    path = tmp_path / "config.toml"
+    save(path, config)
+    monkeypatch.setattr("getcraft.cli.GitHub", api)
+    before = snapshot(root)
+    result = CliRunner().invoke(app, ["--config", str(path), "prune", "--json-plan"])
+    assert result.exit_code == 0, result.output
+    assert len(json.loads(result.output)["candidates"]) == 2
+    assert snapshot(root) == before

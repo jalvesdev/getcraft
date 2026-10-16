@@ -270,3 +270,33 @@ def test_no_reported_sync_date_is_invented_for_m2_archive(archive_fixture):
     project = collect(root, config)["projects"][0]
     assert project["last_sync"] is None
     assert project["latest_archive_time"]
+
+
+def test_report_shows_sync_failure_even_when_preserved_backup_is_intact(archive_fixture):
+    root, config, _, add, _ = archive_fixture
+    add(1)
+    record_sync(
+        root,
+        {"storytold/photocraft": {"latest": {"tag": "v1.0", "release_id": 1}}},
+        [
+            {
+                "repository": "storytold/photocraft",
+                "tag": "v1.0",
+                "status": "failed",
+                "failures": ["remote asset identity changed"],
+            }
+        ],
+    )
+    data = collect(root, config)
+    assert data["projects"][0]["releases"][0]["status"] == "complete"
+    for format in ["json", "markdown", "html"]:
+        assert "identity changed" in render(data, format, root, root)
+
+
+def test_report_warns_about_corrupt_index_without_losing_catalog(archive_fixture):
+    root, config, _, add, _ = archive_fixture
+    add(1)
+    (root / "inventory.json").write_text("broken")
+    data = collect(root, config)
+    assert any("Inventory unreadable" in problem for problem in data["problems"])
+    assert data["projects"][0]["releases"][0]["status"] == "complete"
