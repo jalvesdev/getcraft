@@ -219,3 +219,47 @@ def test_audit_write_failure_happens_before_any_delete(archive_fixture, monkeypa
     with api() as github, pytest.raises(OSError):
         apply(root, config, config["repositories"], plan, github)
     assert (root / "storytold/photocraft/v1.0").exists()
+
+
+def test_source_becomes_unavailable_immediately_before_delete(archive_fixture):
+    root, config, _, _, api = fill(archive_fixture)
+    with api() as github:
+        plan = prepare(root, config, config["repositories"], github)
+
+    class SourceGoesOffline:
+        def __init__(self, client):
+            self.client = client
+            self.calls = 0
+
+        def releases(self, name):
+            self.calls += 1
+            if self.calls > 1:
+                raise ValueError("source offline")
+            return self.client.releases(name)
+
+    with api() as github, pytest.raises(ValueError, match="offline"):
+        apply(root, config, config["repositories"], plan, SourceGoesOffline(github))
+    assert (root / "storytold/photocraft/v1.0").exists()
+    audit = json.loads(next((root / ".getcraft/prune").glob("*.json")).read_text())
+    assert audit["status"] == "interrupted" and audit["removed"] == []
+
+
+def test_modified_generated_readme_prevents_prune(archive_fixture):
+    from getcraft.reports import backfill_readmes
+
+    root, config, _, _, api = fill(archive_fixture)
+    backfill_readmes(root)
+    (root / "storytold/photocraft/v1.0/README.md").write_text("user edit")
+    rebuild(root)
+    with api() as github:
+        assert prepare(root, config, config["repositories"], github)["candidates"] == []
+
+
+def test_arbitrary_plan_cannot_authorize_unknown_deletion(archive_fixture):
+    root, config, _, _, api = fill(archive_fixture)
+    with api() as github:
+        plan = prepare(root, config, config["repositories"], github)
+    plan["candidates"][0]["files"][0]["path"] = "../outside"
+    with api() as github, pytest.raises(ValueError, match="changed"):
+        apply(root, config, config["repositories"], plan, github)
+    assert (root / "storytold/photocraft/v1.0").exists()

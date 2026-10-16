@@ -6,6 +6,8 @@ import stat
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
+
 from getcraft.archive import atomic_json, inspect, lock, now, read_manifest, rebuild, safe
 from getcraft.download import sha256
 from getcraft.selection import ordered
@@ -108,7 +110,11 @@ def prepare(root: Path, config: dict, projects: list[dict], github) -> dict:
     indexed = {(r["repository"].lower(), r["release_id"]): r for r in rows}
     if len(actual) != len(verified) or len(indexed) != len(rows) or actual.keys() != indexed.keys():
         raise ValueError("Inventory differs from manifests; rebuild before pruning")
-    if any(indexed[key]["status"] != actual[key]["status"] for key in actual):
+    if any(
+        indexed[key]["status"] != actual[key]["status"]
+        or ("tag" in indexed[key] and indexed[key]["tag"] != actual[key]["tag"])
+        for key in actual
+    ):
         raise ValueError("Inventory differs from file verification; rebuild before pruning")
     candidates, kept, skipped, sources = [], [], [], {}
     for project in projects:
@@ -208,6 +214,11 @@ def apply(root: Path, config: dict, projects: list[dict], plan: dict, github) ->
         expected = dict(plan["snapshot"])
         try:
             for candidate in plan["candidates"]:
+                if (
+                    digest(github.releases(candidate["repository"]))
+                    != plan["sources"][candidate["repository"]]
+                ):
+                    raise ValueError("Source changed or unavailable before deletion; aborting")
                 if snapshot(root) != expected:
                     raise ValueError("Archive changed before deletion; aborting")
                 # Rehash all retained replacements, pins and candidates before each release.
@@ -218,7 +229,9 @@ def apply(root: Path, config: dict, projects: list[dict], plan: dict, github) ->
                         raise ValueError("Planned file changed; aborting")
                 for item in files:
                     path = safe(root, item["path"])
-                    # Safe paths are rechecked immediately before unlink; never use rmtree.
+                    # Safe paths and exact hashes are rechecked immediately before unlink.
+                    if path.stat().st_size != item["size"] or sha256(path) != item["sha256"]:
+                        raise ValueError("Planned file changed before unlink; aborting")
                     path.unlink()
                     audit["removed"].append(item)
                 base = safe(root, f"{candidate['repository']}/{candidate['tag']}")
@@ -250,7 +263,7 @@ def apply(root: Path, config: dict, projects: list[dict], plan: dict, github) ->
             if errors:
                 raise ValueError("Inventory reconstruction failed after pruning")
             audit["status"] = "complete"
-        except (ValueError, OSError):
+        except (ValueError, OSError, httpx.HTTPError):
             audit["status"] = "interrupted"
             atomic_json(audit_path, audit)
             raise
