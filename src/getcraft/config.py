@@ -20,12 +20,18 @@ def load(path: Path) -> dict:
         raise ValueError("Archive path must be outside the GetCraft checkout")
     archive.setdefault("keep_versions", 3)
     archive.setdefault("include_prereleases", False)
+    if not isinstance(archive["include_prereleases"], bool):
+        raise ValueError("include_prereleases must be boolean")
+    if type(archive["keep_versions"]) is not int or archive["keep_versions"] < 1:
+        raise ValueError("keep_versions must be a positive integer")
     data.setdefault("repositories", [])
     if not isinstance(data["repositories"], list):
         raise ValueError("repositories must be an array of tables")
     seen = set()
     for repo in data["repositories"]:
-        key = f"{repo['owner']}/{repo['repo']}".lower()
+        from getcraft.github import repository_name
+
+        key = repository_name(f"{repo['owner']}/{repo['repo']}").lower()
         if key in seen:
             raise ValueError(f"Duplicate repository: {key}")
         seen.add(key)
@@ -49,12 +55,12 @@ def save(path: Path, data: dict) -> None:
     for section, values in data.items():
         if section == "repositories":
             continue
-        lines.append(f"[{section}]")
-        lines.extend(f"{key} = {_value(value)}" for key, value in values.items())
+        lines.append(f"[{json.dumps(section)}]")
+        lines.extend(f"{json.dumps(key)} = {_value(value)}" for key, value in values.items())
         lines.append("")
     for repo in data["repositories"]:
         lines.append("[[repositories]]")
-        lines.extend(f"{key} = {_value(value)}" for key, value in repo.items())
+        lines.extend(f"{json.dumps(key)} = {_value(value)}" for key, value in repo.items())
         lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".getcraft-")

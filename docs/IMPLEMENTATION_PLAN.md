@@ -7,10 +7,10 @@
 - [x] Commit: `chore: scaffold getcraft project`.
 
 ## M1 — Registry and discovery
-- [ ] Implement `repo add/list/enable/disable/remove` with validation.
-- [ ] Implement GitHub Releases API client with pagination and rate-limit handling.
-- [ ] Implement `check` and release ordering, including irregular tags.
-- [ ] Tests and commit: `feat: discover repositories and releases`.
+- [x] Implement `repo add/list/enable/disable/remove` with validation.
+- [x] Implement GitHub Releases API client with pagination and rate-limit handling.
+- [x] Implement `check` and release ordering, including irregular tags.
+- [x] Tests and commit: `feat: discover repositories and releases`.
 
 ## M2 — Archive and verification
 - [ ] Implement platform/architecture asset classification and overrides.
@@ -30,3 +30,9 @@
 
 ## Acceptance gate
 After each milestone run the available lint/test checks, review `git diff`, commit and push to the configured remote if permitted. Never push secrets or installer archives.
+
+## M0/M1 scope clarification
+
+The current task advances advisory asset classification, read-only inventory comparison,
+and `status` from M2. Downloads, inventory writes, manifests, verification and deletion
+remain unimplemented. Classification reports uncertainty and does not approve downloads.
