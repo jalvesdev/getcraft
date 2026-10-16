@@ -36,3 +36,11 @@ After each milestone run the available lint/test checks, review `git diff`, comm
 The current task advances advisory asset classification, read-only inventory comparison,
 and `status` from M2. Downloads, inventory writes, manifests, verification and deletion
 remain unimplemented. Classification reports uncertainty and does not approve downloads.
+
+## M2 execution plan
+
+1. Add bounded streaming downloads, path validation, locking and atomic metadata primitives.
+2. Apply selection policies and orchestrate idempotent sync with published SHA-256 checksums.
+3. Expose offline verify, live status and inventory reconstruction; test failure recovery.
+4. Document the contract, run all checks, demonstrate PhotoCraft dry-run and report size
+   before requesting approval for large real downloads. No retention deletion in M2.
