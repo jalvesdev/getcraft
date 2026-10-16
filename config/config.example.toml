@@ -1,6 +1,6 @@
 [archive]
 path = "~/SoftwareArchive"
-keep_versions = 3
+keep_versions = 3 # Backfill window only; M2 never deletes archived releases.
 include_prereleases = false
 include_drafts = false
 download_source_code = false
@@ -10,6 +10,13 @@ prune_after_sync = false
 windows = true
 macos = true
 linux = true
+
+# Optional selection lists; per-repository lists override these defaults.
+[selection]
+architectures = ["x86_64", "arm64", "universal"]
+formats = []
+include_assets = []
+exclude_assets = []
 
 [[repositories]]
 name = "PhotoCraft"

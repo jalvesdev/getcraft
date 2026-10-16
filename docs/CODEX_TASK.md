@@ -22,3 +22,8 @@ Git workflow:
 5. Report changed files, checks run, commit SHAs, and next steps for M2.
 
 If prerequisites are missing or important design decisions are ambiguous, explain and request clarification instead of guessing. Do not claim download or offline restoration works before it is implemented and tested.
+
+## Completion note
+
+The kickoff above records the original M0/M1 task. M0, M1 and M2 are now implemented.
+See IMPLEMENTATION_PLAN.md and README.md for the current scope; M3 is next.

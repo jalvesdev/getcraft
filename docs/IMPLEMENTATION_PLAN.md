@@ -13,10 +13,10 @@
 - [x] Tests and commit: `feat: discover repositories and releases`.
 
 ## M2 — Archive and verification
-- [ ] Implement platform/architecture asset classification and overrides.
-- [ ] Implement safe downloads, hashes, manifests, and local inventory.
-- [ ] Implement `sync`, `status`, and `verify`.
-- [ ] Tests and commit: `feat: archive and verify release assets`.
+- [x] Implement platform/architecture asset classification and overrides.
+- [x] Implement safe downloads, hashes, manifests, and local inventory.
+- [x] Implement `sync`, `status`, and `verify`.
+- [x] Tests and commit: `feat: archive and verify release assets`.
 
 ## M3 — Retention and reporting
 - [ ] Implement safe retention with `prune --dry-run` and explicit confirmation.
@@ -33,9 +33,9 @@ After each milestone run the available lint/test checks, review `git diff`, comm
 
 ## M0/M1 scope clarification
 
-The current task advances advisory asset classification, read-only inventory comparison,
-and `status` from M2. Downloads, inventory writes, manifests, verification and deletion
-remain unimplemented. Classification reports uncertainty and does not approve downloads.
+M1 advanced advisory asset classification, read-only inventory comparison and status.
+M2 now adds filtered archive downloads, manifests, inventory writes and offline verification.
+Deletion remains outside scope.
 
 ## M2 execution plan
 

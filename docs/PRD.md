@@ -79,3 +79,19 @@ Initial operator: Fedora Linux desktop, with eventual NAS storage. Initial scope
 - Obtain the other twelve repository URLs; do not invent them.
 - Choose archive directory and storage capacity.
 - Choose default architecture policy (all published architectures vs. selected architectures).
+
+## M2 scope decisions
+
+- `keep_versions` controls the newest eligible releases selected for backfill; it never
+  authorizes removal. Older managed releases still published by the API are rechecked.
+- Default architecture policy selects known x86_64, arm64 and universal assets on all
+  enabled platforms, regardless of host OS. Other/ambiguous architectures need explicit rules.
+- All selected formats are required; unavailable upstream platforms are recorded separately,
+  while unresolved asset classifications prevent a complete release state.
+- Initial offline verification checks integrity, not signature authenticity or offline
+  installability. Signatures are preserved; supported published checksums are SHA-256
+  in GNU/BSD basename formats. Unsupported checksums generate warnings.
+- Range resume is deferred; incomplete transfers restart. No code is executed.
+- Installation README generation remains in M3; M2 writes detailed JSON manifests.
+- Public release asset downloads are supported. Private authenticated downloads and
+  persistent API ETag caching remain limitations; tokens are used for API discovery only.
