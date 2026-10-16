@@ -9,13 +9,17 @@ def inventory(root: Path) -> list[dict]:
     if not path.exists():
         return []
     data = json.loads(path.read_text())
-    if data.get("schema_version") != 1 or not isinstance(data.get("releases"), list):
+    if (
+        not isinstance(data, dict)
+        or data.get("schema_version") != 1
+        or not isinstance(data.get("releases"), list)
+    ):
         raise ValueError("Unsupported inventory: expected schema_version=1 and releases array")
     for row in data["releases"]:
         if (
             not isinstance(row, dict)
             or not isinstance(row.get("repository"), str)
-            or not isinstance(row.get("release_id"), int)
+            or type(row.get("release_id")) is not int
             or row.get("status") not in {"partial", "complete", "verified", "failed"}
         ):
             raise ValueError("Invalid inventory release entry")

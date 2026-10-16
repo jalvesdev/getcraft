@@ -47,7 +47,14 @@ def load(path: Path) -> dict:
     for settings in [defaults, *data["repositories"]]:
         if not isinstance(settings, dict):
             raise ValueError("Invalid selection settings")
-        for key in ("platforms", "architectures", "formats", "include_assets", "exclude_assets"):
+        for key in (
+            "platforms",
+            "architectures",
+            "formats",
+            "include_assets",
+            "exclude_assets",
+            "pinned_versions",
+        ):
             if key in settings and (
                 not isinstance(settings[key], list)
                 or not all(isinstance(v, str) and v for v in settings[key])
@@ -63,6 +70,11 @@ def load(path: Path) -> dict:
             type(settings["keep_versions"]) is not int or settings["keep_versions"] < 1
         ):
             raise ValueError("keep_versions must be a positive integer")
+    from getcraft.archive import segment
+
+    for project in data["repositories"]:
+        for tag in project.get("pinned_versions", []):
+            segment(tag)
     return data
 
 

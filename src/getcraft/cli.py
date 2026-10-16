@@ -1,5 +1,6 @@
 """GetCraft command line interface."""
 
+import json
 from functools import wraps
 from pathlib import Path
 
@@ -7,10 +8,12 @@ import httpx
 import typer
 from rich.console import Console
 
-from getcraft.archive import inspect, lock, rebuild
+from getcraft.archive import inspect, lock, rebuild, segment
 from getcraft.config import default_path, load, save
 from getcraft.download import Downloader
 from getcraft.github import GitHub, repository_name
+from getcraft.retention import apply as apply_prune
+from getcraft.retention import prepare
 from getcraft.selection import classify, ordered
 from getcraft.storage import inventory, state
 from getcraft.sync import build_plans, synchronize
@@ -286,3 +289,114 @@ def verify(
         good = show_local(root, repo)
     if not good:
         raise typer.Exit(1)
+
+
+def pin_change(ctx: typer.Context, repository: str, tag: str, remove: bool, dry_run: bool):
+    data = load(ctx.obj)
+    name = repository_name(repository)
+    segment(tag)
+    matches = [
+        p for p in data["repositories"] if f"{p['owner']}/{p['repo']}".lower() == name.lower()
+    ]
+    if not matches:
+        raise ValueError("Repository not registered")
+    project = matches[0]
+    tags = set(project.get("pinned_versions", []))
+    if remove:
+        tags.discard(tag)
+    else:
+        tags.add(tag)
+    project["pinned_versions"] = sorted(tags)
+    if not dry_run:
+        root = Path(data["archive"]["path"]).expanduser().absolute()
+        with lock(root):
+            # Prevent an intervening config edit from being lost.
+            fresh = load(ctx.obj)
+            target = next(
+                p
+                for p in fresh["repositories"]
+                if f"{p['owner']}/{p['repo']}".lower() == name.lower()
+            )
+            existing = set(target.get("pinned_versions", []))
+            existing.discard(tag) if remove else existing.add(tag)
+            target["pinned_versions"] = sorted(existing)
+            save(ctx.obj, fresh)
+    console.print(f"{'Would ' if dry_run else ''}{'unpin' if remove else 'pin'} {name} {tag}")
+
+
+@app.command()
+@handled
+def pin(ctx: typer.Context, repository: str, tag: str, dry_run: bool = False):
+    """Protect an exact release tag (including a future release)."""
+    pin_change(ctx, repository, tag, False, dry_run)
+
+
+@app.command()
+@handled
+def unpin(ctx: typer.Context, repository: str, tag: str, dry_run: bool = False):
+    """Remove explicit protection without deleting any files."""
+    pin_change(ctx, repository, tag, True, dry_run)
+
+
+@app.command()
+@handled
+def pins(ctx: typer.Context):
+    """List protected tags, including disabled repositories."""
+    for project in load(ctx.obj)["repositories"]:
+        for tag in project.get("pinned_versions", []):
+            console.print(f"{project['owner']}/{project['repo']} {tag}")
+
+
+@app.command()
+@handled
+def prune(
+    ctx: typer.Context,
+    repo: str | None = None,
+    all_repos: bool = typer.Option(False, "--all"),
+    dry_run: bool = False,
+    apply: bool = False,
+    yes: bool = False,
+    json_plan: bool = False,
+):
+    """Simulate retention by default; deletion requires --apply and confirmation."""
+    if dry_run and apply:
+        raise ValueError("--dry-run and --apply are mutually exclusive")
+    if yes and not apply:
+        raise ValueError("--yes requires --apply")
+    data = load(ctx.obj)
+    root = Path(data["archive"]["path"]).expanduser().absolute()
+    projects = selected_projects(data, repo, all_repos)
+    with GitHub() as github:
+        plan = prepare(root, data, projects, github)
+    if json_plan:
+        console.print(json.dumps(plan, ensure_ascii=False, indent=2), soft_wrap=True)
+    else:
+        console.print(f"Prune plan {plan['plan_id']}")
+        for candidate in plan["candidates"]:
+            console.print(
+                f"Would remove {candidate['repository']} {candidate['tag']}: "
+                f"{candidate['bytes']} bytes; {candidate['reason']}"
+            )
+            for file in candidate["files"]:
+                console.print(f"  {file['path']} | {file['size']} bytes | sha256={file['sha256']}")
+        for entry in plan["kept"]:
+            console.print(f"Keep {entry['repository']} {entry['tag']}: {entry['reason']}")
+        for message in plan["skipped"]:
+            console.print(f"Preserved: {message}")
+    console.print(
+        f"Candidates: {len(plan['candidates'])} releases; "
+        f"{sum(c['bytes'] for c in plan['candidates'])} bytes"
+    )
+    if not apply or not plan["candidates"]:
+        console.print("Simulation only; no archive changes.")
+        return
+    if not yes:
+        typer.confirm("Permanently remove exactly these managed files?", abort=True)
+    fresh_config = load(ctx.obj)
+    fresh_projects = selected_projects(fresh_config, repo, all_repos)
+    with GitHub() as github:
+        result = apply_prune(root, fresh_config, fresh_projects, plan, github)
+    console.print(
+        f"Removed {result['removed_releases']} releases, {result['removed_bytes']} bytes. "
+        f"Audit: {result['audit']}"
+    )

@@ -44,3 +44,13 @@ Deletion remains outside scope.
 3. Expose offline verify, live status and inventory reconstruction; test failure recovery.
 4. Document the contract, run all checks, demonstrate PhotoCraft dry-run and report size
    before requesting approval for large real downloads. No retention deletion in M2.
+
+## M3 execution plan
+
+1. Fail-closed retention plans: fresh source availability, index/manifest agreement,
+   full local hash verification, stable-release counting, per-project limits and pins.
+2. Require --apply plus confirmation/--yes, re-plan under lock, persist audit before
+   unlinking only enumerated managed files. Any changed state aborts; never rmtree.
+3. Generate managed installation READMEs and offline JSON/Markdown/HTML reports,
+   including preserved coverage, storage, pins and last-known discovery/sync state.
+4. Validate with temporary archives only; demonstrate dry-run without touching real assets.
