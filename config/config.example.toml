@@ -13,10 +13,15 @@ linux = true
 
 # Optional selection lists; per-repository lists override these defaults.
 [selection]
+# Canonical platform list overrides legacy [platforms] flags when present:
+# platforms = ["linux"]
+# Run `getcraft config detect` to preview host-oriented suggestions first.
 architectures = ["x86_64", "arm64", "universal"]
 formats = []
 include_assets = []
 exclude_assets = []
+# Per-platform formats override the flat formats list for those platforms:
+# formats_by_platform = { linux = ["appimage", "flatpak", "rpm"], windows = ["msi"], macos = ["dmg", "pkg"] }
 
 [[repositories]]
 name = "PhotoCraft"

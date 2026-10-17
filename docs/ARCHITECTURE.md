@@ -126,3 +126,38 @@ history unknown, while manifests remain the authority for current file integrity
 files. Catalog outputs are confined to non-hidden filenames at the archive root;
 per-release README files retain their established location. Logical size accounting
 includes regular file bytes, not filesystem allocation/deduplication/compression.
+
+## M3.5 implementation contract
+
+`preferences` defines host suggestions, canonical architecture/format aliases, supported
+platform-format combinations, backward-compatible inheritance and map validation.
+Global `selection.platforms` precedes legacy platform flags; project lists override globals.
+Platform-format maps merge by platform, except that a project legacy flat format list
+replaces the global map before its own map overrides are applied. Missing values inherit;
+empty legacy format lists mean all, but explicit empty platform-map entries mean none.
+
+`configuration_commands` registers the config subcommands without coupling them to network
+or release modules. Detection is read-only unless explicitly applied; interactive review
+and noninteractive --set/--yes routes share validation. Configuration writes reuse the
+atomic TOML serializer (now supporting inline maps) under the archive lock. Fingerprints
+reject config edits made during review. No registry/pin/retention fields are discarded.
+
+`selection.decide_asset` explains each classification/filter decision. Intrinsic formats
+and bounded filename markers must agree; unknown or conflicting evidence requires review.
+Generic containers need explicit inclusion; platform/format/architecture exclusions precede
+unrelated ambiguity. Shared verification documents remain required, but named sidecars for
+known ignored installers are excluded from future transfers. Metadata-only plans are empty.
+`plan_release` adds optional schema-2 policy, decision, byte and target-availability fields.
+
+`planning` owns stable-identity comparison (moved from sync without changing its safeguards),
+read-only local size/hash estimates and offline policy previews. It never writes manifests.
+Check and sync use the same plans and estimates. Offline status/report add a separate
+current-selection dimension, including no_installers_selected; verify and historical integrity
+retain their existing semantics. Unregistered archived projects remain inspectable.
+Reports preserve both historical source-selection snapshots and current archived-file views,
+with escaped output and no new network dependency. None of these views alters retention.
+
+Config loading accepts old syntax and normalizes aliases in memory only. Saving explicitly
+can canonicalize formatting, but there is no eager migration or mass rewrite of old manifests.
+Existing installers and metadata remain on disk when preferences change, including records
+deselected in a subsequent explicit sync. Pruning and M4 scheduling are outside this change.

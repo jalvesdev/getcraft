@@ -25,5 +25,5 @@ If prerequisites are missing or important design decisions are ambiguous, explai
 
 ## Completion note
 
-The kickoff above records the original M0/M1 task. M0, M1, M2 and M3 are now implemented.
+The kickoff above records the original M0/M1 task. M0, M1, M2, M3 and M3.5 are now implemented.
 See IMPLEMENTATION_PLAN.md and README.md for the current scope; M4 is next.

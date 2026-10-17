@@ -24,11 +24,11 @@
 - [x] Tests and commit: `feat: add safe retention and reports`.
 
 ## M3.5 — Platform, format and architecture preferences
-- [ ] Add host detection and reviewable global/repository configuration commands.
-- [ ] Explain selected, ignored and ambiguous assets through shared selection rules.
-- [ ] Integrate check/sync estimates and offline status/report policy views.
-- [ ] Preserve historical integrity, verification metadata and legacy TOML compatibility.
-- [ ] Demonstrate Fedora x86_64 PhotoCraft selection without asset downloads; validate and document.
+- [x] Add host detection and reviewable global/repository configuration commands.
+- [x] Explain selected, ignored and ambiguous assets through shared selection rules.
+- [x] Integrate check/sync estimates and offline status/report policy views.
+- [x] Preserve historical integrity, verification metadata and legacy TOML compatibility.
+- [x] Demonstrate Fedora x86_64 PhotoCraft selection without asset downloads; validate and document.
 
 ## M4 — Scheduling and hardening
 - [ ] Provide optional systemd user service/timer (not auto-enabled).

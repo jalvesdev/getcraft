@@ -2,7 +2,7 @@
 
 **GetCraft** is a Python command-line tool for archiving official software releases from GitHub, across **Windows, macOS, and Linux**.
 
-> Status: M0–M3 implemented: registry, safe downloads, offline verification, explicit retention, installation guidance and offline catalogs. Installers are never executed.
+> Status: M0–M3.5 implemented: registry, safe downloads, offline verification, explicit retention, installation guidance and offline catalogs and reviewable target preferences. Installers are never executed.
 
 ## Goals
 
@@ -50,6 +50,123 @@ legacy config contains `include_drafts = true`. Prereleases require explicit opt
 Valid version tags use `packaging.Version` ordering; if any eligible tag is irregular,
 all eligible releases use publication time and release ID, with a visible warning.
 
+## Target preferences and first-time setup (M3.5)
+
+```bash
+getcraft config detect                         # show host and suggestions only
+getcraft config detect --apply --interactive   # review targets/formats, then confirm
+getcraft config detect --apply --yes           # explicitly accept suggestions unattended
+getcraft config detect --apply --dry-run       # preview without saving
+getcraft config show
+getcraft config show --repo storytold/photocraft
+getcraft config platforms
+getcraft config formats
+getcraft config architectures
+```
+
+Detection uses the running host's OS/architecture and, on Linux, `/etc/os-release`
+through Python's standard API. It does not change the system or constrain archive
+targets to the current machine. Fedora x86_64 suggests Linux x86_64 AppImage, Flatpak
+and RPM; Windows x86_64 suggests Windows installers; macOS ARM64 suggests DMG/PKG,
+ARM64 and universal. Unknown hosts/architectures require explicit target choices.
+No suggestions are applied automatically and existing configs are not eagerly migrated.
+
+Choose any combination, globally or per repository:
+
+```bash
+getcraft config platforms --set linux,windows
+getcraft config architectures --set x86_64,ARM64,universal
+getcraft config formats --platform linux --set AppImage,flatpak,rpm
+getcraft config formats --platform windows --set msi,exe
+getcraft config platforms --repo storytold/photocraft --set linux
+getcraft config formats --repo storytold/photocraft --platform linux --set flatpak
+getcraft config architectures --repo storytold/photocraft --set x86_64
+getcraft config architectures --repo storytold/photocraft --reset
+```
+
+The three editing commands support `--interactive`, `--dry-run` and `--reset`.
+Without `--set`, `--reset` or `--interactive`, they only show effective values.
+`--reset` removes the named override to restore inheritance. Global reset falls back
+to legacy `[platforms]` flags/defaults, if present. Format reset is per platform.
+`--set` accepts a nonempty comma-separated list. For a completely disabled platform,
+remove it from `platforms`; an empty per-platform format array in TOML also disables
+all its formats. `amd64`/`x64`/`x86-64` normalize to `x86_64`, and `aarch64` to `arm64`.
+Format names are case insensitive at configuration time. Config changes are written
+atomically; changes made while a review prompt is open cause an abort rather than
+silently overwriting pins or other edits.
+
+Example Fedora-oriented configuration, with an independent Windows repository override:
+
+```toml
+[archive]
+path = "~/SoftwareArchive"
+keep_versions = 3
+
+[selection]
+platforms = ["linux"]
+architectures = ["x86_64"]
+
+[selection.formats_by_platform]
+linux = ["appimage", "flatpak", "rpm"]
+windows = ["msi", "exe"]
+macos = ["dmg", "pkg"]
+
+[[repositories]]
+owner = "storytold"
+repo = "photocraft"
+enabled = true
+# Uncomment to override global targets for this repository:
+# platforms = ["windows"]
+# architectures = ["x86_64"]
+# formats_by_platform = { windows = ["msi"] }
+```
+
+Canonical global `selection.platforms` overrides legacy `[platforms]` booleans;
+a repository's platform/architecture list replaces the global list. Per-platform
+format overrides merge by platform, with repository entries taking precedence.
+Legacy flat `formats = [...]` remains supported: it is intersected with each platform's
+formats. A repository's flat list overrides the global format map; its own explicit
+per-platform entries can then override that list. An empty legacy flat list means
+all supported formats, while an empty entry such as `linux = []` in the map means none.
+Detection updates only suggested platform-format entries, preserving other OS entries
+and repository overrides. Saving may normalize TOML formatting/aliases; loading alone
+never rewrites the original file. Pins, registry entries and retention values are retained.
+
+The same planner drives `check` and `sync`. Every asset is `SELECTED`, `IGNORED` or
+`AMBIGUOUS`, with an explanation. Unknown platform/architecture needs an explicit
+`include_assets` rule, unless a known format is already excluded for all chosen targets.
+Conflicting OS/format markers require review even with an include rule. Intrinsically
+platform-specific extensions are checked alongside filename evidence; a Linux-marked
+EXE or Windows-marked AppImage is not automatically accepted. Generic ZIP/tar containers
+are allowed only with explicit reviewed inclusion and usable target evidence; contents
+are not unpacked or inspected. Known unrequested x86/RISC-V/FreeBSD assets are ignored
+by policy rather than mistaken for absent x86_64 Linux installers.
+
+Shared checksum/signature documents remain selected with relevant installers. A
+sidecar that names a known ignored installer is ignored for future downloads; generic
+verification documents are conservatively retained when their scope is unknown.
+Metadata alone cannot make an installer release complete. No relevant installer means
+no backup selection, not success based solely on a checksum file.
+
+`check` reports exact requested platform/format/architecture tuples as published,
+not published or ambiguous; filtered files have separate ignore reasons. Selected
+files show whether the local copy is present, missing, corrupt, untracked or needs
+identity review. Estimates include verification metadata and subtract reusable local
+files after identity/size/hash checks. They are not a disk-space reservation, and
+changed remote identity still blocks actual sync for manual review.
+
+`status` and all report formats show current preferences separately from historical
+integrity. Offline selection applies to archived files only, without claiming knowledge
+of new upstream assets. `no_installers_selected` is explicit. A previous valid Windows
+backup stays valid after choosing Linux; existing files are not deleted. Configuration
+edits, check, status, ordinary report and offline verify do not rewrite manifests.
+An explicit sync retains deselected file records/data and records its new selection;
+existing required-file verification and the conservative M3 prune policy remain intact.
+No automatic retention, dependency installation or M4 scheduling is enabled.
+
+See [M3.5 validation](docs/M3_5_VALIDATION.md) for the real PhotoCraft dry-run and
+estimated 72.95% transfer/storage reduction compared with the broad default plan.
+
 ## Back up releases (M2)
 
 ```bash
@@ -96,7 +213,8 @@ SoftwareArchive/
 All three platforms and known `x86_64`, `arm64`, `universal` architectures are
 selected by default. The existing `[platforms]` boolean flags remain supported.
 Global policy fields belong in `[selection]`; repository fields override the
-corresponding global lists. Empty `formats` means all recognized installer formats.
+corresponding global lists. Prefer `formats_by_platform` for platform-specific choices;
+the legacy empty `formats` list means all supported formats.
 Names and globs are case sensitive and never interpreted by a shell.
 
 ```toml

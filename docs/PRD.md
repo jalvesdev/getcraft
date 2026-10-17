@@ -123,3 +123,25 @@ Initial operator: Fedora Linux desktop, with eventual NAS storage. Initial scope
 M4 remains optional scheduling and further hardening. Private authenticated asset
 fetches, independent signature authentication, dependency preservation, cross-host
 integration testing and safe validated Range resume remain known limitations.
+
+## M3.5 — Reviewed target selection
+
+- Detect the host OS and architecture without privileging it as the only archive target.
+  On Linux, use os-release to suggest Fedora RPM or Debian DEB alongside AppImage/Flatpak.
+  Suggestions require explicit application/confirmation, with interactive and unattended modes.
+- Offer `config show/detect/platforms/formats/architectures`, global policy and repository
+  overrides, atomic TOML persistence, aliases and dry-run. Preserve existing settings and pins.
+- Keep legacy `[platforms]`, flat format lists and schema-2 manifests compatible. No eager
+  file migration or default narrowing of existing installations.
+- Use explicit per-platform format maps, with compatible native installers and generic
+  containers requiring manual inclusion. Unknown/conflicting evidence never silently approves
+  a download. Record selected/ignored/ambiguous decisions and exact target availability.
+- Preserve shared verification metadata; skip known sidecars for ignored binaries. A release
+  cannot be complete when no relevant installer is selected.
+- Check/sync share policy and disk-aware transfer estimates. Status/report expose effective
+  preferences and archived-file selection independently of historical integrity. Offline verify
+  continues to validate manifests/files without consulting current target preferences.
+- A preference edit never deletes archives or rewrites historical manifests by itself. Explicit
+  sync can record a revised selection while preserving previously archived records/files.
+  Prune policy is unchanged; only its existing explicit path can delete verified candidates.
+- M4 scheduling is deliberately not part of M3.5.
