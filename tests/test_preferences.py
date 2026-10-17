@@ -306,3 +306,9 @@ def test_detect_apply_and_cancel_preserve_unrelated_settings(tmp_path, monkeypat
     assert saved["selection"]["formats_by_platform"] == {"linux": ["rpm"], "windows": ["msi"]}
     assert saved["archive"]["keep_versions"] == 7
     assert saved["repositories"] == data["repositories"]
+
+
+@pytest.mark.parametrize("architecture", ["x86_64", "x86-64", "amd64", "x64"])
+def test_x86_64_filename_aliases_do_not_match_32_bit_x86(architecture):
+    plan = plan_release({}, PROJECT, release([remote(f"app-linux-{architecture}.rpm")]))
+    assert plan["assets"][0]["architecture"] == "x86_64"
