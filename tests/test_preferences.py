@@ -76,7 +76,7 @@ def test_fedora_selection_and_explanations():
         "app-windows-x64.exe",
         "app-macos-universal.dmg",
         "app-linux.zip",
-        "mystery.zip",
+        "mystery.rpm",
         "SHA256SUMS.txt",
     ]
     plan = plan_release(config, PROJECT, release([remote(n, i) for i, n in enumerate(names)]))
@@ -86,7 +86,7 @@ def test_fedora_selection_and_explanations():
     assert decisions[names[3]]["reason"] == "format not selected for platform"
     assert decisions[names[4]]["reason"] == "architecture not selected"
     assert decisions[names[5]]["reason"] == "platform not selected"
-    assert decisions["mystery.zip"]["decision"] == "ambiguous"
+    assert decisions["mystery.rpm"]["decision"] == "ambiguous"
     assert plan["selected_bytes"] == 400
     assert plan["missing_platforms"] == []
 
@@ -254,3 +254,55 @@ def test_concurrent_pin_edit_is_not_overwritten_by_preferences(tmp_path, monkeyp
     )
     assert result.exit_code == 1 and "changed during review" in result.output
     assert load(path)["repositories"][0]["pinned_versions"] == ["v1.0"]
+
+
+def test_legacy_explicit_generic_archives_remain_supported():
+    for name, fmt in [
+        ("app-linux-x64.zip", "zip"),
+        ("app-macos-arm64.tar.gz", "tar.gz"),
+        ("app-windows-x64.tar.xz", "tar.xz"),
+        ("app-linux-x64.bin", "unknown"),
+    ]:
+        config = {"selection": {"formats": [fmt], "include_assets": [name]}}
+        plan = plan_release(config, PROJECT, release([remote(name)]))
+        assert len(plan["assets"]) == 1, name
+
+
+@pytest.mark.parametrize(
+    "name", ["app-windows-notarm64.exe", "app-windows-x64Setup.exe", "app-macos-notuniversal.dmg"]
+)
+def test_architecture_substrings_do_not_establish_compatibility(name):
+    plan = plan_release({}, PROJECT, release([remote(name)]))
+    assert not plan["assets"]
+    assert plan["asset_decisions"][0]["decision"] == "ambiguous"
+
+
+def test_detect_apply_and_cancel_preserve_unrelated_settings(tmp_path, monkeypatch):
+    path = tmp_path / "config.toml"
+    data = load(path)
+    data["archive"].update(path=str(tmp_path / "archive"), keep_versions=7)
+    data["selection"] = {"formats_by_platform": {"windows": ["msi"]}}
+    data["repositories"] = [{**PROJECT, "platforms": ["windows"], "pinned_versions": ["v1.0"]}]
+    save(path, data)
+    monkeypatch.setattr(
+        "getcraft.configuration_commands.detect",
+        lambda: {
+            "suggested": {
+                "platforms": ["linux"],
+                "architectures": ["x86_64"],
+                "formats_by_platform": {"linux": ["rpm"]},
+            }
+        },
+    )
+    runner = CliRunner()
+    prefix = ["--config", str(path), "config", "detect", "--apply"]
+    before = path.read_bytes()
+    assert runner.invoke(app, prefix, input="n\n").exit_code != 0
+    assert path.read_bytes() == before
+    result = runner.invoke(app, [*prefix, "--yes"])
+    assert result.exit_code == 0, result.output
+    saved = load(path)
+    assert saved["selection"]["platforms"] == ["linux"]
+    assert saved["selection"]["formats_by_platform"] == {"linux": ["rpm"], "windows": ["msi"]}
+    assert saved["archive"]["keep_versions"] == 7
+    assert saved["repositories"] == data["repositories"]

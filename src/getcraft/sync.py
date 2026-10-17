@@ -11,6 +11,7 @@ from getcraft.archive import (
     safe,
 )
 from getcraft.download import Downloader, checksums, official_sha256
+from getcraft.planning import previous
 from getcraft.reports import write_readme
 from getcraft.selection import ordered, plan_release
 
@@ -58,29 +59,14 @@ def build_plans(
             if not any(a["platform"] != "metadata" for a in plan["assets"]):
                 messages.append(f"{name} {plan['tag']}: no eligible installers")
                 messages.extend(plan["unresolved"])
+                messages.extend(
+                    f"{d['decision'].upper()} {d['name']}: {d['reason']}"
+                    for d in plan["asset_decisions"]
+                )
                 continue
             plans.append(plan)
             count += 1
     return plans, messages
-
-
-def previous(root: Path, plan: dict) -> dict | None:
-    path = safe(root, f"{plan['repository']}/{plan['tag']}/manifest.json")
-    if not path.exists():
-        return None
-    old = read_manifest(path)
-    if old["repository"] != plan["repository"] or old["release_id"] != plan["release_id"]:
-        raise ValueError("Release tag collision with different stable release ID")
-    old_assets = {a["path"]: a for a in old["assets"]}
-    for asset in plan["assets"]:
-        prior = old_assets.get(asset["path"])
-        if prior and any(
-            prior.get(key) != asset.get(key) for key in ("id", "size", "url", "official_digest")
-        ):
-            raise ValueError(
-                "Remote asset identity changed; preserving existing release for review"
-            )
-    return old
 
 
 def is_checksum(asset: dict) -> bool:
@@ -187,7 +173,9 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
     required = [a for a in assets if a.get("required", True)]
     plan["assets"] = assets
     complete = (
-        required and all(a["status"] == "verified" for a in required) and not plan["unresolved"]
+        any(a["platform"] != "metadata" for a in required)
+        and all(a["status"] == "verified" for a in required)
+        and not plan["unresolved"]
     )
     plan["status"] = (
         "complete"

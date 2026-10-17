@@ -8,15 +8,17 @@ import httpx
 import typer
 from rich.console import Console
 
-from getcraft.archive import inspect, lock, rebuild, segment
+from getcraft.archive import inspect, lock, read_manifest, rebuild, safe, segment
 from getcraft.config import default_path, load, save
 from getcraft.configuration_commands import register as register_configuration
 from getcraft.download import Downloader
 from getcraft.github import GitHub, repository_name
+from getcraft.planning import estimate, local_selection
+from getcraft.preferences import policy
 from getcraft.reports import backfill_readmes, collect, record_sync, render, write_report
 from getcraft.retention import apply as apply_prune
 from getcraft.retention import prepare
-from getcraft.selection import classify, ordered
+from getcraft.selection import ordered, plan_release
 from getcraft.storage import inventory, state
 from getcraft.sync import build_plans, synchronize
 
@@ -121,7 +123,8 @@ def remove(ctx: typer.Context, repository: str, dry_run: bool = False):
 def check(ctx: typer.Context, repo: str | None = None, prereleases: bool = False):
     """Compare remote release IDs with the local inventory."""
     data = load(ctx.obj)
-    rows = inventory(Path(data["archive"]["path"]))
+    root = Path(data["archive"]["path"]).expanduser().absolute()
+    rows = inventory(root)
     selected = repository_name(repo).lower() if repo else None
     repos = [
         r
@@ -140,6 +143,9 @@ def check(ctx: typer.Context, repo: str | None = None, prereleases: bool = False
                     github.releases(name), prereleases or data["archive"]["include_prereleases"]
                 )
                 console.print(name)
+                console.print(
+                    "Effective selection: " + json.dumps(policy(data, project), sort_keys=True)
+                )
                 for warning in warnings:
                     console.print(f"Warning: {warning}")
                 if not releases:
@@ -150,12 +156,8 @@ def check(ctx: typer.Context, repo: str | None = None, prereleases: bool = False
                     )
                     if not release.get("assets"):
                         console.print("    Warning: release has no published binary assets")
-                    for asset in release.get("assets", []):
-                        platform, arch, warning = classify(asset["name"])
-                        console.print(
-                            f"    {asset['name']} | {platform}/{arch}"
-                            + (f" | Warning: {warning}" if warning else "")
-                        )
+                    plan = plan_release(data, project, release)
+                    show_selection(root, plan)
             except (ValueError, httpx.HTTPError) as error:
                 failed = True
                 console.print(
@@ -163,6 +165,39 @@ def check(ctx: typer.Context, repo: str | None = None, prereleases: bool = False
                 )
     if failed:
         raise typer.Exit(1)
+
+
+def show_selection(root: Path, plan: dict) -> dict:
+    transfer = estimate(root, plan)
+    states = {a["id"]: a["state"] for a in transfer["assets"]}
+    for decision in plan["asset_decisions"]:
+        state = f" | local={states[decision['id']]}" if decision["id"] in states else ""
+        console.print(
+            f"    {decision['decision'].upper()} {decision['name']} | "
+            f"{decision['platform']}/{decision['architecture']} | {decision['size']} bytes | "
+            f"{decision['reason']}{state}"
+        )
+    for warning in plan["warnings"] + transfer["problems"]:
+        console.print(f"Warning: {warning}")
+    absent = [
+        f"{t['platform']}/{t['architecture']}/{t['format']}"
+        for t in plan["availability"]
+        if t["state"] == "not_published"
+    ]
+    if absent:
+        console.print(
+            "Not published targets: "
+            + ", ".join(absent[:12])
+            + (f" (and {len(absent) - 12} more)" if len(absent) > 12 else "")
+        )
+    if plan["missing_platforms"]:
+        console.print("Not published for platforms: " + ", ".join(plan["missing_platforms"]))
+    if not any(a["platform"] != "metadata" for a in plan["assets"]):
+        console.print("    No relevant installer selected; not a complete selection.")
+    console.print(
+        f"    Selected: {transfer['selected_bytes']} bytes; estimated download: {transfer['download_bytes']} bytes; reusable: {transfer['reused_bytes']} bytes"
+    )
+    return transfer
 
 
 def selected_projects(data: dict, repo: str | None, all_repos: bool) -> list[dict]:
@@ -199,23 +234,20 @@ def sync(
             plans, messages = build_plans(data, projects, github, known)
         for message in messages:
             console.print(f"Warning: {message}")
+        estimated_bytes = 0
         for plan in plans:
             console.print(
                 f"{plan['repository']} {plan['tag']}: {len(plan['assets'])} assets, "
                 f"{sum(a['size'] for a in plan['assets'])} bytes"
             )
-            for asset in plan["assets"]:
-                console.print(f"  {asset['size']} bytes | {asset['path']}")
-            for warning in plan["warnings"] + plan["unresolved"]:
-                console.print(f"Warning: {warning}")
-            if plan["missing_platforms"]:
-                console.print(
-                    "Not published for platforms: " + ", ".join(plan["missing_platforms"])
-                )
+            estimated_bytes += show_selection(root, plan)["download_bytes"]
         console.print(
             f"Plan: {len(plans)} releases; "
             f"{sum(a['size'] for p in plans for a in p['assets'])} bytes total selected "
             "(upper bound; intact local files are reused)."
+        )
+        console.print(
+            f"Estimated downloads: {estimated_bytes} bytes; existing intact files excluded."
         )
         return plans
 
@@ -241,11 +273,30 @@ def sync(
             raise typer.Exit(1)
 
 
-def show_local(root: Path, repo: str | None = None) -> bool:
+def show_local(root: Path, repo: str | None = None, config: dict | None = None) -> bool:
     rows, errors = inspect(root, repository_name(repo) if repo else None)
     console.print(f"Archived releases: {len(rows)}")
     for row in rows:
         console.print(f"{row['repository']} {row['tag']} id={row['release_id']} {row['status']}")
+        if config is not None:
+            settings = next(
+                (
+                    p
+                    for p in config["repositories"]
+                    if f"{p['owner']}/{p['repo']}".lower() == row["repository"].lower()
+                ),
+                {},
+            )
+            manifest = read_manifest(safe(root, row["manifest"]))
+            view = local_selection(config, settings, manifest, root)
+            console.print(
+                "  Effective selection: " + json.dumps(policy(config, settings), sort_keys=True)
+            )
+            console.print("  Current selection of archived files: " + view["state"])
+            for decision in view["decisions"]:
+                console.print(
+                    f"    {decision['decision'].upper()} {decision['name']}: {decision['reason']}"
+                )
         if row.get("missing_platforms"):
             console.print("  Not published for platforms: " + ", ".join(row["missing_platforms"]))
         for problem in row["problems"]:
@@ -266,9 +317,9 @@ def status(ctx: typer.Context):
     root = Path(data["archive"]["path"]).expanduser().absolute()
     if root.exists():
         with lock(root):
-            good = show_local(root)
+            good = show_local(root, config=data)
     else:
-        good = show_local(root)
+        good = show_local(root, config=data)
     if not good:
         raise typer.Exit(1)
 

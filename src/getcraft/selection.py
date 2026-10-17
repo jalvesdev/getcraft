@@ -39,7 +39,7 @@ def classify(filename: str) -> tuple[str, str, str]:
     if name.endswith((".zsync", ".wixpdb", ".blockmap")):
         return "metadata", "unknown", "Auxiliary update/debug metadata; not an installer"
     if name.endswith((".sig", ".asc", ".minisig", ".sign", ".signature")) or (
-        re.search(r"(?:^|[-_.])(?:sha(?:1|224|256|384|512)(?:sums)?|checksums?)(?:$|[-_.])", name)
+        re.search(r"(?:^|[-_.])(?:sha(?:1|224|256|384|512)(?:sums?)?|checksums?)(?:$|[-_.])", name)
         and not name.endswith(
             (
                 ".exe",
@@ -81,11 +81,11 @@ def classify(filename: str) -> tuple[str, str, str]:
         platforms.add("linux")
     archs = set()
     for pattern, arch in [
-        (r"x86[_-]64|amd64|x64", "x86_64"),
-        (r"arm64|aarch64", "arm64"),
-        (r"universal(?:2)?", "universal"),
+        (r"(?:^|[-_.])(?:x86[_-]64|amd64|x64)(?=$|[-_.])", "x86_64"),
+        (r"(?:^|[-_.])(?:arm64|aarch64)(?=$|[-_.])", "arm64"),
+        (r"(?:^|[-_.])universal(?:2)?(?=$|[-_.])", "universal"),
         (r"(?:^|[-_.])(?:x86|i386|i686)(?=$|[-.]|_(?!64))", "x86"),
-        (r"riscv64", "riscv64"),
+        (r"(?:^|[-_.])riscv64(?=$|[-_.])", "riscv64"),
     ]:
         if re.search(pattern, name):
             archs.add(arch)
@@ -189,8 +189,14 @@ def decide_asset(rules: dict, remote: dict) -> dict:
         return finish("ignored", "architecture not selected")
     if platform != "unknown" and fmt not in rules["formats_by_platform"][platform]:
         # Unknown extensions still need review unless a legacy flat format filter excludes them.
-        if fmt != "unknown" or rules["formats"]:
+        if fmt != "unknown" or (rules["formats"] and fmt not in rules["formats"]):
             return finish("ignored", "format not selected for platform")
+    if (
+        platform == "unknown"
+        and fmt != "unknown"
+        and not any(fmt in rules["formats_by_platform"][p] for p in rules["platforms"])
+    ):
+        return finish("ignored", "format not selected for any target platform")
     if platform == "unknown" and rules["formats"] and fmt not in rules["formats"]:
         return finish("ignored", "format not selected")
     incompatible = (
@@ -267,6 +273,23 @@ def plan_release(config: dict, project: dict, release: dict) -> dict:
             warnings.append(f"{name}: {decision['warning']}")
         if remote.get("digest") and not remote["digest"].startswith("sha256:"):
             warnings.append(f"{name}: unsupported official digest; preserved without validation")
+    installer_names = {d["name"] for d in decisions if d["platform"] not in {"metadata", "source"}}
+    selected_names = {a["name"] for a in assets if a["platform"] != "metadata"}
+    unrelated_metadata = {
+        a["id"]
+        for a in assets
+        if a["platform"] == "metadata"
+        and any(
+            a["name"].startswith(name + ".") and name not in selected_names
+            for name in installer_names
+        )
+    }
+    for decision in decisions:
+        if decision["id"] in unrelated_metadata:
+            decision.update(
+                decision="ignored", reason="verification metadata for an ignored installer"
+            )
+    assets = [a for a in assets if a["id"] not in unrelated_metadata]
     installers = [a for a in assets if a["platform"] != "metadata"]
     # No metadata-only backup can become a complete installer release.
     if not installers:
@@ -292,6 +315,38 @@ def plan_release(config: dict, project: dict, release: dict) -> dict:
         "selection_policy": rules,
         "asset_decisions": decisions,
         "selected_bytes": sum(a["size"] for a in assets),
+        "availability": availability(rules, decisions),
         "status": "partial",
         "archived_at": None,
     }
+
+
+def availability(rules: dict, decisions: list[dict]) -> list[dict]:
+    result = []
+    binaries = [d for d in decisions if d["platform"] not in {"metadata", "source"}]
+    for os_name in rules["platforms"]:
+        for fmt in rules["formats_by_platform"][os_name]:
+            for arch in rules["architectures"]:
+                exact = any(
+                    d["platform"] == os_name and d["format"] == fmt and d["architecture"] == arch
+                    for d in binaries
+                )
+                uncertain = any(
+                    d["platform"] in {os_name, "unknown"}
+                    and d["format"] in {fmt, "unknown"}
+                    and d["architecture"] in {arch, "unknown"}
+                    for d in binaries
+                )
+                result.append(
+                    {
+                        "platform": os_name,
+                        "format": fmt,
+                        "architecture": arch,
+                        "state": "published"
+                        if exact
+                        else "ambiguous"
+                        if uncertain
+                        else "not_published",
+                    }
+                )
+    return result

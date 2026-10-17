@@ -126,7 +126,9 @@ def register(app, handled, console):
                 abort=True,
             )
         data, baseline = edit_load(ctx.obj)
-        data.setdefault("selection", {}).update(suggested)
+        selection = data.setdefault("selection", {})
+        selection.update({k: v for k, v in suggested.items() if k != "formats_by_platform"})
+        selection.setdefault("formats_by_platform", {}).update(suggested["formats_by_platform"])
         validate_preferences(data["selection"])
         persist(ctx.obj, data, dry_run, baseline)
         console.print(

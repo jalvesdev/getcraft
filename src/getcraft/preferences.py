@@ -4,20 +4,11 @@ import platform
 
 PLATFORMS = ("windows", "macos", "linux")
 ARCHITECTURES = ("x86_64", "arm64", "universal")
+ARCHIVE_FORMATS = ("zip", "tar.gz", "tar.xz", "tar.bz2", "tgz")
 PLATFORM_FORMATS = {
-    "windows": ("exe", "msi", "msix", "msixbundle", "zip"),
-    "macos": ("dmg", "pkg", "app.zip", "zip"),
-    "linux": (
-        "appimage",
-        "flatpak",
-        "flatpakref",
-        "rpm",
-        "deb",
-        "tar.gz",
-        "tar.xz",
-        "tar.bz2",
-        "tgz",
-    ),
+    "windows": ("exe", "msi", "msix", "msixbundle", *ARCHIVE_FORMATS),
+    "macos": ("dmg", "pkg", "app.zip", *ARCHIVE_FORMATS),
+    "linux": ("appimage", "flatpak", "flatpakref", "rpm", "deb", *ARCHIVE_FORMATS),
 }
 
 

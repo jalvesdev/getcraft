@@ -19,6 +19,8 @@ from getcraft.archive import (
     safe,
 )
 from getcraft.download import sha256
+from getcraft.planning import local_selection
+from getcraft.preferences import policy
 from getcraft.storage import inventory
 
 
@@ -254,6 +256,7 @@ def collect(root: Path, config: dict) -> dict:
             "repository": name,
             "monitored": name in registered,
             "enabled": settings.get("enabled", False),
+            "selection_policy": policy(config, settings),
             "pinned_versions": settings.get("pinned_versions", []),
             "latest_known": known.get(name, {}).get("latest"),
             "last_observed": known.get(name, {}).get("observed_at"),
@@ -275,6 +278,8 @@ def collect(root: Path, config: dict) -> dict:
             release = {
                 **row,
                 "pinned": row["tag"] in project["pinned_versions"],
+                "current_selection": local_selection(config, settings, manifest, root),
+                "last_remote_selection": manifest.get("asset_decisions"),
                 "assets": [],
                 "bytes": 0,
                 "archived_at": manifest.get("archived_at"),
@@ -284,12 +289,18 @@ def collect(root: Path, config: dict) -> dict:
                 "warnings": manifest["warnings"],
                 "unresolved": manifest["unresolved"],
             }
+            decisions = {d["id"]: d for d in release["current_selection"]["decisions"]}
             for asset in manifest["assets"]:
                 target = safe(root, asset["path"])
                 size = target.stat().st_size if target.is_file() else 0
                 problem = file_problem(root, asset)
                 release["assets"].append(
-                    {**asset, "actual_bytes": size, "integrity": problem or "verified"}
+                    {
+                        **asset,
+                        "actual_bytes": size,
+                        "integrity": problem or "verified",
+                        "selection": decisions.get(asset["id"]),
+                    }
                 )
                 release["bytes"] += size
             project["releases"].append(release)
@@ -343,6 +354,8 @@ def render_markdown(data: dict, root: Path, parent: Path) -> str:
             "",
             f"Latest known: {md(latest['tag'] if latest else 'unknown (not queried)')}",
             "",
+            "Current preferences: " + md(json.dumps(project["selection_policy"], sort_keys=True)),
+            "",
             f"Last sync: {md(project['last_sync'] or 'unknown')}; bytes: {project['bytes']}",
             "",
             "Pinned tags: " + (", ".join(md(t) for t in project["pinned_versions"]) or "none"),
@@ -351,7 +364,13 @@ def render_markdown(data: dict, root: Path, parent: Path) -> str:
         lines.extend("- Sync problem: " + md(p) for p in project["problems"])
         lines.append("")
         for release in project["releases"]:
-            lines += [f"### {md(release['tag'])} — {release['status']}", ""]
+            lines += [
+                f"### {md(release['tag'])} — historical integrity: {release['status']}",
+                "",
+                "Current selection (archived assets only): "
+                + release["current_selection"]["state"],
+                "",
+            ]
             if release.get("readme"):
                 readme_link = quote(
                     os.path.relpath(root / release["readme"], parent).replace(os.sep, "/"), safe="/"
@@ -362,7 +381,17 @@ def render_markdown(data: dict, root: Path, parent: Path) -> str:
                     os.path.relpath(root / asset["path"], parent).replace(os.sep, "/"), safe="/"
                 )
                 lines.append(
-                    f"- [{md(asset['name'])}]({link}) — {md(asset['platform'])}/{md(asset['architecture'])}; {md(asset['integrity'])}; {asset['actual_bytes']} bytes"
+                    f"- [{md(asset['name'])}]({link}) — {md(asset['platform'])}/{md(asset['architecture'])}; {md(asset['integrity'])}; {asset['actual_bytes']} bytes; current policy: {md(asset['selection']['decision'])} ({md(asset['selection']['reason'])})"
+                )
+            if release.get("last_remote_selection"):
+                lines += [
+                    "",
+                    "Last remote selection snapshot (historical policy; not refreshed):",
+                    "",
+                ]
+                lines.extend(
+                    f"- {md(d['decision'])} {md(d['name'])}: {md(d['reason'])}; {d['size']} bytes"
+                    for d in release["last_remote_selection"]
                 )
             lines.extend("- Problem: " + md(p) for p in release["problems"] + release["unresolved"])
             lines.append("")
@@ -396,12 +425,18 @@ def render_html(data: dict, root: Path, parent: Path) -> str:
             f"<p>Monitored: {project['monitored']}; enabled: {project['enabled']}; bytes: {project['bytes']}</p>",
             f"<p>Latest known: {e(latest.get('tag') if latest else 'unknown (not queried)')}; last sync: {e(project['last_sync'] or 'unknown')}</p>",
             "<p>Pinned tags: " + e(", ".join(project["pinned_versions"]) or "none") + "</p>",
+            "<p>Current preferences: "
+            + e(json.dumps(project["selection_policy"], sort_keys=True))
+            + "</p>",
         ]
         for problem in project["problems"]:
             lines.append("<p>Sync problem: " + e(problem) + "</p>")
         for release in project["releases"]:
             lines += [
-                f"<h3>{e(release['tag'])} — {e(release['status'])}{' (pinned)' if release['pinned'] else ''}</h3>",
+                f"<h3>{e(release['tag'])} — historical integrity: {e(release['status'])}{' (pinned)' if release['pinned'] else ''}</h3>",
+                "<p>Current selection (archived assets only): "
+                + e(release["current_selection"]["state"])
+                + "</p>",
                 "<table><tr><th>File</th><th>Platform / architecture</th><th>Integrity</th><th>Bytes</th></tr>",
             ]
             if release.get("readme"):
@@ -416,9 +451,18 @@ def render_html(data: dict, root: Path, parent: Path) -> str:
                     os.path.relpath(root / asset["path"], parent).replace(os.sep, "/"), safe="/"
                 )
                 lines.append(
-                    f'<tr><td><a href="{e(link)}">{e(asset["name"])}</a></td><td>{e(asset["platform"])}/{e(asset["architecture"])}</td><td>{e(asset["integrity"])}</td><td>{asset["actual_bytes"]}</td></tr>'
+                    f'<tr><td><a href="{e(link)}">{e(asset["name"])}</a></td><td>{e(asset["platform"])}/{e(asset["architecture"])}</td><td>{e(asset["integrity"])}; current policy: {e(asset["selection"]["decision"])} ({e(asset["selection"]["reason"])})</td><td>{asset["actual_bytes"]}</td></tr>'
                 )
             lines.append("</table>")
+            if release.get("last_remote_selection"):
+                lines.append(
+                    "<details><summary>Last remote selection snapshot (historical policy; not refreshed)</summary><ul>"
+                )
+                lines.extend(
+                    f"<li>{e(d['decision'])} {e(d['name'])}: {e(d['reason'])}; {e(d['size'])} bytes</li>"
+                    for d in release["last_remote_selection"]
+                )
+                lines.append("</ul></details>")
             for problem in release["problems"] + release["unresolved"] + release["warnings"]:
                 lines.append("<p>Problem/warning: " + e(problem) + "</p>")
         lines.append("</section>")
