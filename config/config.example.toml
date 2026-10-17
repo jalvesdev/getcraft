@@ -1,6 +1,6 @@
 [archive]
 path = "~/SoftwareArchive"
-keep_versions = 3 # Backfill window only; M2 never deletes archived releases.
+keep_versions = 3 # Sync backfill and explicit prune window; sync never deletes.
 include_prereleases = false
 include_drafts = false
 download_source_code = false
@@ -23,3 +23,8 @@ name = "PhotoCraft"
 owner = "storytold"
 repo = "photocraft"
 enabled = true
+
+# Protected tags are additional to keep_versions; matching is exact.
+pinned_versions = []
+# Optional per-project retention override:
+# keep_versions = 3

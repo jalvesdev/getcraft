@@ -39,8 +39,8 @@ Initial operator: Fedora Linux desktop, with eventual NAS storage. Initial scope
 ### Retention
 - Keep three most recent **complete verified stable releases** per project by default, configurable per repository.
 - Never prune until a replacement is fully downloaded and validated.
-- Support protected/pinned releases as a future enhancement.
-- Prune is explicit and dry-run capable; sync never deletes without opt-in.
+- Support exact protected/pinned release tags, additional to the ordinary retention window.
+- Prune simulates by default. Physical deletion requires --apply and confirmation or explicit --yes. Sync never deletes.
 
 ### CLI
 - `getcraft repo add|list|enable|disable|remove`
@@ -95,3 +95,31 @@ Initial operator: Fedora Linux desktop, with eventual NAS storage. Initial scope
 - Installation README generation remains in M3; M2 writes detailed JSON manifests.
 - Public release asset downloads are supported. Private authenticated downloads and
   persistent API ETag caching remain limitations; tokens are used for API discovery only.
+
+## M3 acceptance and safety decisions
+
+- Retention counts complete verified stable releases, never installers. Pinned tags
+  are stored per registered project in TOML and do not consume normal retention slots.
+- A candidate requires `keep_versions` newer complete local replacements, each covering
+  its platform/architecture/format combinations. Partial/corrupt project backups block
+  pruning. Drafts/prereleases and unavailable upstream releases are preserved.
+- Every prune plan requires a live official API response and a valid inventory agreeing
+  with authoritative manifests and current hashes. Missing/corrupt indexes must be
+  explicitly reconstructed; they never authorize deletion. Unavailable origins block apply.
+- Only enumerated managed files can be unlinked. Unknown files/directories, symlinks,
+  special files and modified generated guidance are preserved or cause a fail-closed abort.
+- Revalidation under lock must reproduce the exact plan. Audit records precede deletion;
+  source availability and file hashes are checked immediately before removal. Failed
+  operations stop rather than rolling forward. Sync never triggers retention.
+- Schema-2 manifests remain compatible with M2 and add an optional generated README hash.
+  M3 sync generates format-specific guidance without executing commands or inventing
+  application dependencies. Human-modified files are not overwritten.
+- Reports support JSON/Markdown/HTML, inspect actual files offline, and record pins,
+  monitored projects, release coverage, problems and logical byte usage. HTML uses
+  escaped text, relative local links and no required external resources.
+- Latest-known stable release and last-sync timestamps are saved by M3 sync. Unknown
+  historical values stay unknown. Reports do not claim current upstream availability.
+
+M4 remains optional scheduling and further hardening. Private authenticated asset
+fetches, independent signature authentication, dependency preservation, cross-host
+integration testing and safe validated Range resume remain known limitations.

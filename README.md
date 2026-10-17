@@ -2,7 +2,7 @@
 
 **GetCraft** is a Python command-line tool for archiving official software releases from GitHub, across **Windows, macOS, and Linux**.
 
-> Status: M0–M2 implemented: registry, discovery, safe downloads and offline integrity verification. No pruning or installer execution.
+> Status: M0–M3 implemented: registry, safe downloads, offline verification, explicit retention, installation guidance and offline catalogs. Installers are never executed.
 
 ## Goals
 
@@ -74,8 +74,8 @@ privileges are needed. `--repo` and `--all` are mutually exclusive.
 The latest `keep_versions` eligible releases are selected (default three).
 Source-only releases do not consume the selection count. Subsequent syncs also
 revisit older archived release IDs still published upstream, checking every selected
-file before reuse. Valid files are not downloaded again. Nothing is pruned, even
-when `prune_after_sync = true` or the selection changes. Upstream tag/asset identity
+file before reuse. Valid files are not downloaded again. Sync never prunes, even
+when `prune_after_sync = true` or the selection changes. M3 pruning is a separate explicit command. Upstream tag/asset identity
 changes at an existing path require manual review and preserve the old archive.
 
 Example storage, independent of the host operating system:
@@ -186,8 +186,116 @@ M1 inventory-based discovery; rebuild a malformed inventory before using it.
 
 M2 preserves published installers, **not a guarantee of fully offline installation**.
 Flatpak runtimes, distribution dependencies and platform prerequisites may need
-separate preservation. Installation guides, structured reports and conservative
-retention/prune remain planned for M3.
+separate preservation. Installation guides, offline catalogs and explicit
+retention/prune are available in M3, described below.
+
+## Safe retention and protected releases (M3)
+
+```bash
+getcraft prune                                 # simulation by default
+getcraft prune --dry-run
+getcraft prune --repo storytold/photocraft --dry-run
+getcraft prune --all --dry-run
+getcraft prune --json-plan                      # pure JSON plan, no archive writes
+getcraft pin storytold/photocraft v0.9.0
+getcraft pins
+getcraft unpin storytold/photocraft v0.9.0
+getcraft prune --repo storytold/photocraft --apply       # interactive confirmation
+getcraft prune --repo storytold/photocraft --apply --yes # explicit unattended deletion
+```
+
+`--dry-run` and `--apply` are mutually exclusive. `--yes` requires `--apply`.
+`--json-plan` is a simulation output and cannot be combined with `--apply`.
+Pin/unpin also accept `--dry-run`. The exact tag string is protected, including tags
+not yet archived. Pins are saved as `pinned_versions = ["v0.9.0"]` in the repository's
+TOML table. Per-project `keep_versions` overrides the global archive value.
+Pinned releases are **additional** to the newest `keep_versions` verified stable
+releases, rather than consuming slots. Removing a registry entry with pins is refused;
+disable monitoring or explicitly unpin first. Disabled/unregistered projects are not pruned.
+
+Prune uses live GitHub release data and verifies local files; a cached availability
+record is insufficient. It fails closed if the API is unreachable/rate-limited,
+index/manifests disagree, an inventory is missing/corrupt, metadata is invalid, or
+symlinks/special files are encountered. Repair a derived index using
+`getcraft verify --rebuild-inventory`, then inspect the next plan.
+An incomplete/corrupt release blocks deletion for its entire project. Prereleases,
+drafts and releases no longer published as stable are preserved and cannot replace
+stable backups. No API/network/index failure authorizes deletion.
+
+Counting is by release, regardless of the number of installers. Only locally complete,
+rehashed stable releases form the replacement window. Each retained replacement must
+preserve every platform/architecture/format combination of a candidate; a narrower
+new selection policy cannot silently erase the only archived coverage of another OS.
+Versions requiring manual review or containing unknown files/directories are preserved.
+An edited generated README also prevents deletion. These conservative rules can leave
+more than `keep_versions` releases on disk.
+
+The plan lists each candidate's exact paths, sizes, SHA-256 and reason, with a plan ID.
+Application obtains the archive lock, queries the API again and recomputes the plan.
+Any difference in configuration, source or archive fingerprint aborts it. Source
+availability and file identity are checked again before removal. An audit containing
+the entire approved plan is atomically persisted under `.getcraft/prune/<id>.json`
+**before** any unlink. Only listed assets, manifests and unchanged managed READMEs are
+removed, followed by their empty directories; no recursive tree deletion is used.
+Manifests are removed last. The inventory is rebuilt after successful pruning.
+
+State fingerprints cover archive names, file identities, sizes, mtimes and hashes;
+`.getcraft/` runtime/audit data and the lock file are excluded. Repeated full hashing
+can be expensive for large archives. Application holds the OS lock; use a trusted
+archive directory and a filesystem with reliable advisory locks and atomic renames.
+A failure/power loss midway through pruning can leave a partially removed old candidate;
+retained replacements and pins remain untouched. Inspect the audit and run offline
+verify/rebuild before retrying. Do not edit the archive concurrently outside GetCraft.
+
+## Installation guidance and offline catalogs (M3)
+
+Sync generates a `README.md` beside each release manifest. Existing M2 archives can
+receive guidance explicitly, together with a catalog:
+
+```bash
+getcraft report
+getcraft report --format json
+getcraft report --format markdown
+getcraft report --format html
+getcraft report --format html --output catalog.html --write-readmes
+getcraft report --format markdown --output catalog.md
+getcraft report --format json --output catalog.json
+getcraft report --format html --output catalog.html --write-readmes --dry-run
+```
+
+Without `--output`, the selected report is printed to stdout without terminal wrapping.
+`--output` is a filename at the archive root, with relative installer/README links;
+open `catalog.html` directly in a browser. There are no scripts, CDNs, remote fonts,
+external resource requirements or server. The catalog remains navigable when moved
+with the archive. Do not place redirected HTML/Markdown elsewhere without adjusting
+relative links. JSON includes relative paths and file-level integrity results.
+
+Reports are offline: latest-known stable version and last-sync time are recorded by
+M3 sync, not refreshed by report or the stateless M1 check command. For older M2
+archives, absent information is shown as unknown; an archive timestamp is exposed
+separately and never invented as a sync time. Reports include monitored/enabled
+projects, archived releases and coverage, pins, file integrity, missing platforms,
+sync failures and incomplete backups. A corrupt index is reported, while the catalog
+still uses manifests to inspect actual files. Sizes are logical file bytes, including
+metadata/unmanaged files; total size also includes root-level reports/audits and is
+a snapshot before writing the newly generated report, not allocated filesystem space.
+
+Generated READMEs list archived files, hashes, Windows/macOS guidance and applicable
+Flatpak/AppImage/DNF/APT command examples. Commands are safely quoted documentation;
+nothing is executed. They distinguish local payloads, potentially online installers
+whose behavior is unknown, and `.flatpakref` references. They document external runtime/
+package dependencies without inventing application-specific requirements. Archived
+installers do not guarantee fully offline installation or future OS compatibility.
+Optional links to official format documentation are informational, not required resources.
+
+GetCraft records generated README hashes in schema-2 manifests and report hashes in
+`.getcraft/reports.json`. It only replaces an unchanged generated file; user-written
+or edited files are preserved. `verify` also detects a missing/modified managed README.
+`--dry-run` renders output but writes no reports, READMEs or lock files. Normal report
+uses the archive lock; `--write-readmes` is the explicit migration for existing backups.
+Report generation exits 0 when a catalog is produced, even if it lists incomplete
+backups; use verify's exit status for integrity automation. Operational/usage errors
+retain the existing exit-code conventions.
 
 Run local checks with `ruff check .`, `ruff format --check .`, and `pytest -q`.
 CI runs them on Python 3.12, 3.13, and 3.14. A static type checker is not configured.

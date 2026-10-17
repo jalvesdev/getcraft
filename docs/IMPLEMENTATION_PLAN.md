@@ -19,9 +19,9 @@
 - [x] Tests and commit: `feat: archive and verify release assets`.
 
 ## M3 — Retention and reporting
-- [ ] Implement safe retention with `prune --dry-run` and explicit confirmation.
-- [ ] Generate installation READMEs and Markdown/JSON reports.
-- [ ] Tests and commit: `feat: add safe retention and reports`.
+- [x] Implement safe retention with `prune --dry-run` and explicit confirmation.
+- [x] Generate installation READMEs and Markdown/JSON reports.
+- [x] Tests and commit: `feat: add safe retention and reports`.
 
 ## M4 — Scheduling and hardening
 - [ ] Provide optional systemd user service/timer (not auto-enabled).
@@ -35,7 +35,7 @@ After each milestone run the available lint/test checks, review `git diff`, comm
 
 M1 advanced advisory asset classification, read-only inventory comparison and status.
 M2 now adds filtered archive downloads, manifests, inventory writes and offline verification.
-Deletion remains outside scope.
+M3 now provides separate explicit prune; sync still never deletes.
 
 ## M2 execution plan
 
