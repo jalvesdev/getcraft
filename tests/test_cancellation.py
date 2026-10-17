@@ -101,3 +101,19 @@ def test_cancelled_sync_journals_partial_and_can_retry(archive_fixture):
     assert not list(root.rglob("*.part"))
     rows, errors = inspect(root)
     assert rows and not errors and rows[0]["status"] != "complete"
+
+
+def test_sync_completion_reports_reused_files(archive_fixture):
+    root, config, remote, add, api = archive_fixture
+    add(1)
+    from getcraft.selection import plan_release
+
+    events = []
+    with Downloader(
+        completed=lambda asset, outcome: events.append((asset["name"], outcome))
+    ) as downloader:
+        result = synchronize(
+            root, [plan_release(config, config["repositories"][0], remote[0])], downloader
+        )
+    assert result[0]["status"] == "complete"
+    assert len(events) == 3 and all(outcome == "reused" for _, outcome in events)

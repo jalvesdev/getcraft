@@ -89,6 +89,7 @@ class Downloader:
         sleep=time.sleep,
         cancel=None,
         progress=None,
+        completed=None,
     ):
         self.client = httpx.Client(
             timeout=httpx.Timeout(60, connect=15),
@@ -99,6 +100,7 @@ class Downloader:
         self.sleep = sleep
         self.cancel = cancel
         self.progress = progress
+        self.completed = completed
 
     def check_cancelled(self):
         if self.cancel is not None and self.cancel.is_set():

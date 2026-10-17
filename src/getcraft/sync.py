@@ -101,6 +101,7 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
     assets = sorted(plan["assets"], key=lambda a: a["platform"] != "metadata")
     cancelled = False
     for asset in assets:
+        was_downloaded = downloaded
         if cancelled:
             break
         prior = priors.get(asset["path"])
@@ -169,6 +170,15 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
             failures.append(f"{asset['name']}: {error}")
             if asset["platform"] == "metadata":
                 checksum_failed = True
+        if getattr(downloader, "completed", None):
+            outcome = (
+                "failed"
+                if asset["status"] == "failed"
+                else "downloaded"
+                if downloaded > was_downloaded
+                else "reused"
+            )
+            downloader.completed(asset, outcome)
     if cancelled:
         for asset in assets:
             prior = priors.get(asset["path"])
