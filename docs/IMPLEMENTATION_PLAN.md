@@ -23,6 +23,13 @@
 - [x] Generate installation READMEs and Markdown/JSON reports.
 - [x] Tests and commit: `feat: add safe retention and reports`.
 
+## M3.5 — Platform, format and architecture preferences
+- [ ] Add host detection and reviewable global/repository configuration commands.
+- [ ] Explain selected, ignored and ambiguous assets through shared selection rules.
+- [ ] Integrate check/sync estimates and offline status/report policy views.
+- [ ] Preserve historical integrity, verification metadata and legacy TOML compatibility.
+- [ ] Demonstrate Fedora x86_64 PhotoCraft selection without asset downloads; validate and document.
+
 ## M4 — Scheduling and hardening
 - [ ] Provide optional systemd user service/timer (not auto-enabled).
 - [ ] Test interruption recovery, no duplicate downloads, low disk, checksum failures.
@@ -54,3 +61,11 @@ M3 now provides separate explicit prune; sync still never deletes.
 3. Generate managed installation READMEs and offline JSON/Markdown/HTML reports,
    including preserved coverage, storage, pins and last-known discovery/sync state.
 4. Validate with temporary archives only; demonstrate dry-run without touching real assets.
+
+## M3.5 execution plan
+
+1. Keep M0–M3 contracts and conservative pruning unchanged; use explicit configuration edits.
+2. Add canonical format maps per platform, aliases, safe host suggestions and atomic TOML writes.
+3. Reuse a single explainable selection engine for discovery, sync and offline policy previews.
+4. Estimate transfer bytes by checking local managed identities/hashes; do not rewrite historical
+   manifests merely to show new preferences. Validate with mocks and a real API dry-run.

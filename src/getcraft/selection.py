@@ -4,6 +4,8 @@ import re
 
 from packaging.version import InvalidVersion, Version
 
+from getcraft.preferences import PLATFORM_FORMATS, policy
+
 
 def version(release: dict) -> Version | None:
     try:
@@ -36,30 +38,62 @@ def classify(filename: str) -> tuple[str, str, str]:
         return "unknown", "unknown", "Unsafe filename; review required"
     if name.endswith((".zsync", ".wixpdb", ".blockmap")):
         return "metadata", "unknown", "Auxiliary update/debug metadata; not an installer"
-    if re.search(r"(sha\d*|checksums?|\.sig$|\.asc$|\.minisig$|\.sign$|\.signature$)", name):
+    if name.endswith((".sig", ".asc", ".minisig", ".sign", ".signature")) or (
+        re.search(r"(?:^|[-_.])(?:sha(?:1|224|256|384|512)(?:sums)?|checksums?)(?:$|[-_.])", name)
+        and not name.endswith(
+            (
+                ".exe",
+                ".msi",
+                ".msix",
+                ".msixbundle",
+                ".dmg",
+                ".pkg",
+                ".deb",
+                ".rpm",
+                ".appimage",
+                ".flatpak",
+            )
+        )
+    ):
         return "metadata", "unknown", "Checksum/signature; preserve with binaries in M2"
     if "source" in name or "src" in re.split(r"[-_.]", name):
         return "source", "unknown", "Source archive; excluded"
     platforms = set()
-    if name.endswith((".exe", ".msi", ".msix", ".msixbundle")) or re.search(
-        r"windows|win32|win64", name
-    ):
+    for token, os_name in [
+        ("windows", "windows"),
+        ("win32", "windows"),
+        ("win64", "windows"),
+        ("win", "windows"),
+        ("macos", "macos"),
+        ("darwin", "macos"),
+        ("osx", "macos"),
+        ("linux", "linux"),
+        ("freebsd", "freebsd"),
+        ("android", "android"),
+    ]:
+        if re.search(r"(?:^|[-_.])" + token + r"(?=$|[-_.])", name):
+            platforms.add(os_name)
+    if name.endswith((".exe", ".msi", ".msix", ".msixbundle")):
         platforms.add("windows")
-    if name.endswith((".dmg", ".pkg", ".app.zip")) or re.search(r"macos|darwin|osx", name):
+    if name.endswith((".dmg", ".pkg", ".app.zip")):
         platforms.add("macos")
-    if name.endswith((".deb", ".rpm", ".appimage", ".flatpak", ".flatpakref")) or "linux" in name:
+    if name.endswith((".deb", ".rpm", ".appimage", ".flatpak", ".flatpakref")):
         platforms.add("linux")
     archs = set()
     for pattern, arch in [
         (r"x86[_-]64|amd64|x64", "x86_64"),
         (r"arm64|aarch64", "arm64"),
-        (r"universal", "universal"),
+        (r"universal(?:2)?", "universal"),
+        (r"(?:^|[-_.])(?:x86|i386|i686)(?=$|[-.]|_(?!64))", "x86"),
+        (r"riscv64", "riscv64"),
     ]:
         if re.search(pattern, name):
             archs.add(arch)
     platform = next(iter(platforms)) if len(platforms) == 1 else "unknown"
     arch = next(iter(archs)) if len(archs) == 1 else "unknown"
     warnings = []
+    if len(platforms) > 1:
+        warnings.append("Conflicting platform markers")
     if platform == "unknown" or arch == "unknown":
         warnings.append("Ambiguous platform/architecture; review required")
     if name.endswith(".flatpakref"):
@@ -97,87 +131,111 @@ def asset_format(name: str) -> str:
     return next((suffix for suffix in FORMATS if lower.endswith("." + suffix)), "unknown")
 
 
-def policy(config: dict, project: dict) -> dict:
-    defaults = config.get("selection", {})
-    platforms = project.get(
-        "platforms",
-        [p for p in ("windows", "macos", "linux") if config.get("platforms", {}).get(p, True)],
-    )
-    return {
-        "platforms": platforms,
-        **{
-            key: project.get(key, defaults.get(key, default))
-            for key, default in [
-                ("architectures", ["x86_64", "arm64", "universal"]),
-                ("formats", []),
-                ("include_assets", []),
-                ("exclude_assets", []),
-            ]
-        },
-    }
+# policy remains import-compatible with M2/M3 callers.
 
 
-def plan_release(config: dict, project: dict, release: dict) -> dict:
-    """Unknown/source assets never become installers through filename guessing."""
+def decide_asset(rules: dict, remote: dict) -> dict:
+    """Explain every decision, keeping filtering independent from disk integrity."""
     from fnmatch import fnmatchcase
 
     from getcraft.archive import segment
     from getcraft.download import valid_url
 
+    name = remote["name"]
+    platform, architecture, warning = classify(name)
+    fmt = asset_format(name)
+    result = {
+        "id": remote.get("id"),
+        "name": name,
+        "size": remote.get("size", 0),
+        "platform": platform,
+        "architecture": architecture,
+        "format": fmt,
+        "decision": "ignored",
+        "reason": "",
+        "warning": warning,
+    }
+
+    def finish(decision, reason):
+        return {**result, "decision": decision, "reason": reason}
+
+    if any(fnmatchcase(name, p) for p in rules["exclude_assets"]):
+        return finish("ignored", "explicit exclusion")
+    if platform == "source":
+        return finish("ignored", "source excluded")
+    if name.lower().endswith((".zsync", ".wixpdb", ".blockmap")):
+        return finish("ignored", "auxiliary metadata excluded")
+    explicit = any(fnmatchcase(name, p) for p in rules["include_assets"])
+    try:
+        segment(name)
+        if name.lower().endswith(".part"):
+            raise ValueError("Reserved temporary-file suffix")
+        if (
+            type(remote.get("id")) is not int
+            or type(remote.get("size")) is not int
+            or remote["size"] < 0
+        ):
+            raise ValueError("Invalid asset ID/size")
+        valid_url(remote["browser_download_url"])
+    except ValueError as error:
+        return finish("ambiguous", str(error))
+    if platform == "metadata":
+        return finish("selected", "verification metadata")
+    if "Conflicting platform markers" in warning:
+        return finish("ambiguous", "conflicting platform/format evidence; explicit review required")
+    if platform != "unknown" and platform not in rules["platforms"]:
+        return finish("ignored", "platform not selected")
+    if architecture != "unknown" and architecture not in rules["architectures"]:
+        return finish("ignored", "architecture not selected")
+    if platform != "unknown" and fmt not in rules["formats_by_platform"][platform]:
+        # Unknown extensions still need review unless a legacy flat format filter excludes them.
+        if fmt != "unknown" or rules["formats"]:
+            return finish("ignored", "format not selected for platform")
+    if platform == "unknown" and rules["formats"] and fmt not in rules["formats"]:
+        return finish("ignored", "format not selected")
+    incompatible = (
+        platform != "unknown" and fmt != "unknown" and fmt not in PLATFORM_FORMATS[platform]
+    )
+    if incompatible:
+        return finish("ambiguous", "format conflicts with platform; manual review required")
+    if not explicit and (
+        platform == "unknown"
+        or architecture == "unknown"
+        or fmt in {"zip", "app.zip", "tar.gz", "tar.xz", "tar.bz2", "tgz", "unknown"}
+    ):
+        return finish("ambiguous", "explicit include_assets or exclude_assets rule required")
+    if not rules["platforms"] or not rules["architectures"]:
+        return finish("ignored", "no target platforms or architectures selected")
+    return finish("selected", "explicit inclusion" if explicit else "matches effective preferences")
+
+
+def plan_release(config: dict, project: dict, release: dict) -> dict:
+    from getcraft.archive import segment
+
     rules = policy(config, project)
     repository = f"{project['owner']}/{project['repo']}"
     segment(release["tag_name"])
     base = f"{repository}/{release['tag_name']}"
-    assets, unresolved, warnings = [], [], []
+    assets, unresolved, warnings, decisions = [], [], [], []
+    names, ids = set(), set()
     published = set()
-    names = set()
-    ids = set()
     for remote in release.get("assets", []):
+        decision = decide_asset(rules, remote)
+        decisions.append(decision)
         name = remote["name"]
-        platform, architecture, warning = classify(name)
-        if platform in {"windows", "macos", "linux"}:
+        platform, architecture, fmt = (
+            decision["platform"],
+            decision["architecture"],
+            decision["format"],
+        )
+        if platform in PLATFORM_FORMATS:
             published.add(platform)
-        if any(fnmatchcase(name, pattern) for pattern in rules["exclude_assets"]):
+        if decision["decision"] == "ambiguous":
+            unresolved.append(f"{name!r}: {decision['reason']}")
             continue
-        if platform == "source":
-            warnings.append(f"{name}: source excluded")
-            continue
-        if name.lower().endswith((".zsync", ".wixpdb", ".blockmap")):
-            warnings.append(f"{name}: auxiliary metadata excluded")
-            continue
-        explicit = any(fnmatchcase(name, pattern) for pattern in rules["include_assets"])
-        fmt = asset_format(name)
-        if platform != "metadata":
-            if platform != "unknown" and platform not in rules["platforms"]:
-                continue
-            if architecture != "unknown" and architecture not in rules["architectures"]:
-                continue
-            if rules["formats"] and fmt not in rules["formats"]:
-                continue
-        try:
-            segment(name)
-            if name.lower().endswith(".part"):
-                raise ValueError("Reserved temporary-file suffix")
-            if (
-                type(remote["id"]) is not int
-                or type(remote["size"]) is not int
-                or remote["size"] < 0
-            ):
-                raise ValueError("Invalid asset ID/size")
-            valid_url(remote["browser_download_url"])
-        except ValueError as error:
-            unresolved.append(f"{name!r}: {error}")
-            continue
-        if (
-            platform != "metadata"
-            and not explicit
-            and (
-                platform == "unknown"
-                or architecture == "unknown"
-                or fmt in {"zip", "app.zip", "tar.gz", "tar.xz", "tar.bz2", "tgz", "unknown"}
-            )
-        ):
-            unresolved.append(f"{name}: explicit include_assets or exclude_assets rule required")
+        if decision["decision"] == "ignored":
+            if decision["reason"] in {"source excluded", "auxiliary metadata excluded"}:
+                warnings.append(f"{name}: {decision['reason']}")
             continue
         if name.casefold() in names or remote["id"] in ids:
             raise ValueError("Duplicate asset name or ID; refusing release path collision")
@@ -205,10 +263,17 @@ def plan_release(config: dict, project: dict, release: dict) -> dict:
                 "archived_at": None,
             }
         )
-        if warning:
-            warnings.append(f"{name}: {warning}")
+        if decision["warning"]:
+            warnings.append(f"{name}: {decision['warning']}")
         if remote.get("digest") and not remote["digest"].startswith("sha256:"):
             warnings.append(f"{name}: unsupported official digest; preserved without validation")
+    installers = [a for a in assets if a["platform"] != "metadata"]
+    # No metadata-only backup can become a complete installer release.
+    if not installers:
+        for decision in decisions:
+            if decision["decision"] == "selected":
+                decision.update(decision="ignored", reason="no relevant installer selected")
+        assets = []
     return {
         "schema_version": 2,
         "name": project.get("name", repository),
@@ -224,6 +289,9 @@ def plan_release(config: dict, project: dict, release: dict) -> dict:
         "unresolved": unresolved,
         "warnings": warnings,
         "missing_platforms": sorted(set(rules["platforms"]) - published),
+        "selection_policy": rules,
+        "asset_decisions": decisions,
+        "selected_bytes": sum(a["size"] for a in assets),
         "status": "partial",
         "archived_at": None,
     }

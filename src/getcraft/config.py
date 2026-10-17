@@ -70,6 +70,10 @@ def load(path: Path) -> dict:
             type(settings["keep_versions"]) is not int or settings["keep_versions"] < 1
         ):
             raise ValueError("keep_versions must be a positive integer")
+    from getcraft.preferences import validate_preferences
+
+    for settings in [defaults, *data["repositories"]]:
+        validate_preferences(settings)
     from getcraft.archive import segment
 
     for project in data["repositories"]:
@@ -83,6 +87,8 @@ def _value(value: object) -> str:
         return str(value).lower()
     if isinstance(value, (str, int, float)):
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{json.dumps(k)} = {_value(v)}" for k, v in value.items()) + " }"
     if isinstance(value, list):
         return "[" + ", ".join(_value(item) for item in value) + "]"
     raise ValueError(f"Unsupported TOML value: {type(value).__name__}")
@@ -103,7 +109,7 @@ def save(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".getcraft-")
     try:
-        with os.fdopen(fd, "w") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write("\n".join(lines))
             stream.flush()
             os.fsync(stream.fileno())

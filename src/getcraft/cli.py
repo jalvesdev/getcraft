@@ -10,6 +10,7 @@ from rich.console import Console
 
 from getcraft.archive import inspect, lock, rebuild, segment
 from getcraft.config import default_path, load, save
+from getcraft.configuration_commands import register as register_configuration
 from getcraft.download import Downloader
 from getcraft.github import GitHub, repository_name
 from getcraft.reports import backfill_readmes, collect, record_sync, render, write_report
@@ -37,6 +38,9 @@ def handled(function):
             raise typer.Exit(1) from None
 
     return wrapper
+
+
+register_configuration(app, handled, console)
 
 
 @app.callback()
