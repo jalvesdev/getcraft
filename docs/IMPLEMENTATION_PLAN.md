@@ -30,6 +30,12 @@
 - [x] Preserve historical integrity, verification metadata and legacy TOML compatibility.
 - [x] Demonstrate Fedora x86_64 PhotoCraft selection without asset downloads; validate and document.
 
+## M3.6 — Textual terminal interface
+- [x] M3.6.1: shell, dashboard, navigation and keyboard help.
+- [x] M3.6.2: shared registry services, configuration forms and archive library.
+- [x] M3.6.3: threaded operations, progress/cancellation, verify and confirmed retention.
+- [x] Pilot tests, screenshots/demo, documentation and regression validation.
+
 ## M4 — Scheduling and hardening
 - [ ] Provide optional systemd user service/timer (not auto-enabled).
 - [ ] Test interruption recovery, no duplicate downloads, low disk, checksum failures.
@@ -69,3 +75,15 @@ M3 now provides separate explicit prune; sync still never deletes.
 3. Reuse a single explainable selection engine for discovery, sync and offline policy previews.
 4. Estimate transfer bytes by checking local managed identities/hashes; do not rewrite historical
    manifests merely to show new preferences. Validate with mocks and a real API dry-run.
+
+## M3.6 execution plan and completion
+
+1. Introduced Textual shell, dark navigation, keyboard help and local dashboard without
+   automatic network/mutations; preserved lazy CLI entry and --help behavior.
+2. Extracted shared registry/configuration services, validated cancellable forms, repository
+   search/management and hierarchical library with instructions, integrity and pins.
+3. Connected preview/confirmation flows to existing sync/verify/prune, added cooperative
+   download cancellation, per-file bytes, overall outcomes and stale-plan protections.
+4. Validated with Pilot and mocked HTTP/temporary archives, reused the preserved PhotoCraft
+   demo for read-only screenshots and consulted the official API without downloading assets.
+   See M3_6_VALIDATION.md. M4 remains unimplemented.

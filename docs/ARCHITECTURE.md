@@ -161,3 +161,48 @@ Config loading accepts old syntax and normalizes aliases in memory only. Saving 
 can canonicalize formatting, but there is no eager migration or mass rewrite of old manifests.
 Existing installers and metadata remain on disk when preferences change, including records
 deselected in a subsequent explicit sync. Pruning and M4 scheduling are outside this change.
+
+
+## M3.6 implementation contract
+
+`tui/app.py` owns Textual widgets, navigation, messages and job state. `tui/dialogs.py`
+contains reviewable configuration/repair forms and explicit confirmation screens.
+`tui/services.py` adapts existing selection, planning, registry, downloader, archive,
+report and retention functions. It never parses CLI output or implements another
+classification/downloader/prune engine. Textual is confined to the presentation package;
+CLI imports it lazily only for the no-subcommand path.
+
+`configuration.py` extracts config fingerprints, atomic reviewed saves and target lookup
+from the CLI registration module. `config.validate` is shared by disk loading and forms.
+`registry.py` centralizes remote canonical-name/duplicate validation and monitoring changes;
+CLI and TUI reuse it. TOML snapshots and hashes reject stale form submissions. Redirecting
+new backups locks old and new roots without moving/deleting existing files. Malformed
+configs are only replaced after explicit valid repair, never silently reset to defaults.
+
+Blocking filesystem hashing, network and mutation jobs run in background threads and only
+communicate with Textual via thread-safe messages. No worker changes widgets directly.
+One user operation runs at a time; dashboard inspection is independent/read-only. Read-only
+threads may be abandoned at process exit; mutating threads finish safely and the quit/escape
+handlers prevent closing active mutations. This avoids UI blocking and framework dependencies
+in domain modules. Pilot tests exercise navigation, forms, errors and confirmation flows.
+
+`Downloader` now accepts optional standard-library cancellation and progress/completion
+callbacks. No token means unchanged CLI behavior. The streaming loop checks cancellation
+before requests, chunks and publication; backoff is interruptible. Cancellation passes
+through the sync journal/finalization path, retaining prior records and validated files,
+leaving pending assets retriable, cleaning `.part` and rebuilding the index. Overall progress
+counts processed assets (including reused/failed), distinct from bytes of the current transfer.
+
+TUI sync approval is bound to a fingerprinted configuration snapshot. Existing stable asset
+identity and local-hash checks run again before use. Retention delegates directly to M3's
+prepare/apply; a reviewed source adapter checks the configuration fingerprint around every
+source query, including queries made under the prune lock and before deletion. Thus a pin
+changed while waiting for the lock invalidates the plan. The core retention policy, schema-2
+manifest layout and data ownership model are unchanged. No cancellation is offered once
+confirmed physical pruning starts; the existing audit/abort machinery remains authoritative.
+
+Untrusted release/file labels render as literal text, confirmations enumerate exact managed
+paths, and raw HTTP exceptions are hidden to avoid leaking credentials/URLs. Local SHA-256
+is labeled as integrity evidence, not authentication. Installation guidance is rendered as
+text only. Screenshots are exported SVG views of the existing PhotoCraft demo archive;
+installers, production inventory, generated backups and runtime logs remain unversioned.

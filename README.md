@@ -1,8 +1,8 @@
 # GetCraft
 
-**GetCraft** is a Python command-line tool for archiving official software releases from GitHub, across **Windows, macOS, and Linux**.
+**GetCraft** is a Python terminal application and command-line tool for archiving official software releases from GitHub, across **Windows, macOS, and Linux**.
 
-> Status: M0–M3.5 implemented: registry, safe downloads, offline verification, explicit retention, installation guidance and offline catalogs and reviewable target preferences. Installers are never executed.
+> Status: M0–M3.6 implemented: keyboard-driven Textual interface, registry, safe downloads, offline verification, explicit retention, installation guidance and offline catalogs and reviewable target preferences. Installers are never executed.
 
 ## Goals
 
@@ -49,6 +49,51 @@ Disabled projects are skipped. Drafts are always excluded in this stage, even if
 legacy config contains `include_drafts = true`. Prereleases require explicit opt-in.
 Valid version tags use `packaging.Version` ordering; if any eligible tag is irregular,
 all eligible releases use publication time and release ID, with a visible warning.
+
+## Interactive terminal (M3.6)
+
+```bash
+getcraft                            # open the Textual interface
+getcraft --config /path/config.toml # open with a particular archive configuration
+getcraft --help                     # CLI help; scripts/subcommands remain compatible
+```
+
+The dark interface has seven pages: dashboard, repositories, settings, synchronization,
+library, offline verification and retention. Opening it only inspects local metadata/files;
+it never automatically downloads, edits preferences or prunes anything. Missing history
+is shown as unknown. Dashboard storage counts logical file bytes, including metadata.
+
+Use `1`–`7` or the sidebar to navigate; arrows/Enter select, Tab/Shift+Tab switch controls,
+Space toggles selections, `/` focuses project search, `?` opens help, Esc returns/cancels,
+and `q` exits. Dialogs use Esc/Cancel. During a download Esc requests safe cancellation;
+wait for the operation to settle before quitting. Network reads can delay cancellation.
+Read-only queries and retention application finish safely before closing; retention cannot
+be interrupted halfway from the UI. Panels/forms scroll on small terminals; 90×30 or larger
+is more comfortable, and narrow terminals display a navigation hint.
+
+- **Repositories:** add by URL/name, search, enable/disable, remove monitoring with a
+  confirmation, inspect releases and edit per-project preferences. Existing backups survive
+  removal; projects with pins must first be unpinned or simply disabled.
+- **Settings:** edit archive directory, version count, platforms, architectures and formats.
+  Detect proposes host targets inside the form; Save is still required. Cancel leaves TOML
+  unchanged. Repository forms can restore global inheritance for review before Save.
+  Invalid TOML can be explicitly repaired in a validated text editor without restarting.
+  Changing the archive directory does not move existing backups.
+- **Sync:** choose one project or all enabled projects, preview selected/ignored/ambiguous
+  assets and transfer estimates, then explicitly confirm. Per-file byte progress, overall
+  processed-file counts and downloaded/reused/failed outcomes are shown. Cancellation
+  discards the current `.part`, retains validated files and records retriable partial state.
+- **Library:** browse project → version → platform → architecture → file. Inspect hashes,
+  integrity, archive dates, paths, generated installation guidance and pins; verify offline.
+  Installers and documentation commands are never executed.
+- **Retention:** simulate first; review exact paths, bytes and reasons, then confirm deletion.
+  Existing source availability, inventory, full hash, pin, coverage, audit and concurrency
+  safeguards apply again under the archive lock. Changed configuration invalidates approval.
+
+The TUI uses the same TOML and backup layout as the CLI. Authentication remains an
+external `GITHUB_TOKEN`; no credential form or installer execution is provided. Reports
+and advanced unattended options remain available through the CLI. No scheduling is enabled.
+See [validation and screenshots](docs/M3_6_VALIDATION.md).
 
 ## Target preferences and first-time setup (M3.5)
 

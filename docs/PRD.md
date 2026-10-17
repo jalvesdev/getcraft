@@ -145,3 +145,29 @@ integration testing and safe validated Range resume remain known limitations.
   sync can record a revised selection while preserving previously archived records/files.
   Prune policy is unchanged; only its existing explicit path can delete verified candidates.
 - M4 scheduling is deliberately not part of M3.5.
+
+
+## M3.6 — Keyboard terminal interface
+
+- Bare `getcraft` opens a separate Textual presentation layer; `--help` and all existing
+  subcommands retain their CLI contract. Python >=3.12 and existing TOML stay supported.
+- Provide sidebar, main panel, shortcut footer, dark theme, scrollable small-terminal
+  layouts, loading/error states and keyboard-accessible dialogs. No automatic sync/prune.
+- Dashboard reads actual local archive state, projects, version counts, logical storage,
+  last-known sync and problems. Unknown history must remain unknown.
+- Repository management reuses shared domain validation, preserves backups and pins,
+  supports search, remote discovery and per-project preferences. Forms validate before
+  atomic save, reject concurrent edits and allow cancellation; detection only suggests.
+- Library exposes hierarchical files, recorded dates/hashes, actual integrity, instructions
+  and pin management. Offline verification must remain independent of selection changes.
+- Sync requires preview, estimated size and confirmation. Background threads deliver byte
+  progress and overall processed-file outcomes. Cooperative cancellation preserves validated
+  files, discards temporary parts, journals partial releases and rebuilds inventory.
+- Retention defaults to a read-only plan and requires explicit confirmation of enumerated
+  files. All existing M3 protections remain in force; source/config/archive changes abort.
+  The TUI never automatically prunes or executes installers or installation commands.
+- Recoverable errors stay in the application with retry/edit actions. Malformed TOML has
+  an explicit validated repair editor. Read-only operations may need to finish before exit;
+  irreversible retention application is deliberately not cancellable through the UI.
+- M3.6 does not guarantee offline installation, authenticate signatures, manage credentials
+  or introduce M4 scheduling. Native Windows/macOS integration remains to be exercised.
