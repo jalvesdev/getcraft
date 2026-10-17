@@ -22,7 +22,7 @@ from getcraft.selection import ordered, plan_release
 from getcraft.storage import inventory, state
 from getcraft.sync import build_plans, synchronize
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
 repo_app = typer.Typer(no_args_is_help=True)
 app.add_typer(repo_app, name="repo")
 console = Console(markup=False)
@@ -49,6 +49,10 @@ register_configuration(app, handled, console)
 def main(ctx: typer.Context, config: Path = typer.Option(default_path(), "--config")):
     """Archive and verify official GitHub release installers."""
     ctx.obj = config
+    if ctx.invoked_subcommand is None:
+        from getcraft.tui.app import launch
+
+        launch(config)
 
 
 @repo_app.command("add")
@@ -56,16 +60,13 @@ def main(ctx: typer.Context, config: Path = typer.Option(default_path(), "--conf
 def add(ctx: typer.Context, repository: str, dry_run: bool = False):
     """Validate and register a GitHub repository."""
     data = load(ctx.obj)
-    name = repository_name(repository)
-    if any(f"{r['owner']}/{r['repo']}".lower() == name.lower() for r in data["repositories"]):
-        raise ValueError("Repository already registered")
+    from getcraft.registry import register
+
     with GitHub() as github:
-        remote = github.repository(name)
-    owner, repo = repository_name(remote["full_name"]).split("/")
-    data["repositories"].append({"owner": owner, "repo": repo, "enabled": True})
+        name = register(data, repository, github)
     if not dry_run:
         save(ctx.obj, data)
-    console.print(f"{'Would add' if dry_run else 'Added'} {owner}/{repo}")
+    console.print(f"{'Would add' if dry_run else 'Added'} {name}")
 
 
 @repo_app.command("list")
@@ -81,17 +82,9 @@ def list_repos(ctx: typer.Context):
 def change(ctx, repository, action, dry_run):
     data = load(ctx.obj)
     name = repository_name(repository)
-    matches = [
-        r for r in data["repositories"] if f"{r['owner']}/{r['repo']}".lower() == name.lower()
-    ]
-    if not matches:
-        raise ValueError("Repository not registered")
-    if action == "remove":
-        if matches[0].get("pinned_versions"):
-            raise ValueError("Repository has pinned versions; disable monitoring or unpin first")
-        data["repositories"].remove(matches[0])
-    else:
-        matches[0]["enabled"] = action == "enable"
+    from getcraft.registry import change as registry_change
+
+    registry_change(data, name, action)
     if not dry_run:
         save(ctx.obj, data)
     console.print(f"{'Would ' if dry_run else ''}{action}: {name}")
