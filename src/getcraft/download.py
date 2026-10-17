@@ -11,6 +11,10 @@ from urllib.parse import urlparse
 import httpx
 
 
+class DownloadCancelled(ValueError):
+    """Cooperative cancellation; validated existing files are preserved."""
+
+
 class DownloadError(ValueError):
     """A download did not pass validation."""
 
@@ -79,7 +83,12 @@ def checksums(path: Path) -> dict[str, str]:
 
 class Downloader:
     def __init__(
-        self, transport: httpx.BaseTransport | None = None, attempts: int = 3, sleep=time.sleep
+        self,
+        transport: httpx.BaseTransport | None = None,
+        attempts: int = 3,
+        sleep=time.sleep,
+        cancel=None,
+        progress=None,
     ):
         self.client = httpx.Client(
             timeout=httpx.Timeout(60, connect=15),
@@ -88,6 +97,12 @@ class Downloader:
         )
         self.attempts = attempts
         self.sleep = sleep
+        self.cancel = cancel
+        self.progress = progress
+
+    def check_cancelled(self):
+        if self.cancel is not None and self.cancel.is_set():
+            raise DownloadCancelled("Download cancelled safely")
 
     def __enter__(self):
         return self
@@ -98,6 +113,7 @@ class Downloader:
     def fetch(
         self, asset: dict, target: Path, expected: str | None = None, repair: bool = False
     ) -> str:
+        self.check_cancelled()
         if target.is_symlink() or target.with_name(target.name + ".part").is_symlink():
             raise DownloadError("Refusing symlink destination")
         valid_url(asset["url"])
@@ -118,12 +134,14 @@ class Downloader:
         target.parent.mkdir(parents=True, exist_ok=True)
         part = target.with_name(target.name + ".part")
         for attempt in range(self.attempts):
+            self.check_cancelled()
             if shutil.disk_usage(target.parent).free < size + 1024 * 1024:
                 raise DownloadError("Insufficient disk space")
             try:
                 url = asset["url"]
                 for redirect in range(6):
                     valid_url(url)
+                    self.check_cancelled()
                     with self.client.stream("GET", url) as response:
                         if response.is_redirect:
                             url = str(response.url.join(response.headers["location"]))
@@ -150,11 +168,14 @@ class Downloader:
                         )
                         with os.fdopen(fd, "wb") as stream:
                             for chunk in response.iter_bytes(1024 * 1024):
+                                self.check_cancelled()
                                 count += len(chunk)
                                 if count > size:
                                     raise DownloadError("Asset exceeds declared size")
                                 stream.write(chunk)
                                 hash_value.update(chunk)
+                                if self.progress:
+                                    self.progress(dict(name=asset["name"], bytes=count, size=size))
                             stream.flush()
                             os.fsync(stream.fileno())
                         if count != size:
@@ -162,6 +183,7 @@ class Downloader:
                         actual = hash_value.hexdigest()
                         if expected and actual != expected:
                             raise DownloadError("SHA-256 mismatch")
+                        self.check_cancelled()
                         os.replace(part, target)
                         from getcraft.archive import fsync_directory
 
@@ -171,7 +193,11 @@ class Downloader:
             except (httpx.TransportError, httpx.HTTPStatusError):
                 if attempt + 1 == self.attempts:
                     raise DownloadError("Network download failed after retries") from None
-                self.sleep(2**attempt)
+                if self.cancel is not None:
+                    if self.cancel.wait(2**attempt):
+                        self.check_cancelled()
+                else:
+                    self.sleep(2**attempt)
             finally:
                 part.unlink(missing_ok=True)
         raise DownloadError("Download failed")

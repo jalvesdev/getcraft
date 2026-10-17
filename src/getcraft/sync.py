@@ -10,7 +10,7 @@ from getcraft.archive import (
     rebuild,
     safe,
 )
-from getcraft.download import Downloader, checksums, official_sha256
+from getcraft.download import DownloadCancelled, Downloader, checksums, official_sha256
 from getcraft.planning import previous
 from getcraft.reports import write_readme
 from getcraft.selection import ordered, plan_release
@@ -99,7 +99,10 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
     downloaded = reused = 0
     failures = []
     assets = sorted(plan["assets"], key=lambda a: a["platform"] != "metadata")
+    cancelled = False
     for asset in assets:
+        if cancelled:
+            break
         prior = priors.get(asset["path"])
         if prior:
             asset["sha256"] = prior.get("sha256")
@@ -153,12 +156,24 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
                     if name in published and published[name] != digest:
                         raise ValueError("Conflicting published checksum files")
                     published[name] = digest
+        except DownloadCancelled:
+            cancelled = True
+            failures.append("Synchronization cancelled; pending files can be retried")
+            # Preserve a prior record even when cancellation occurs during repair.
+            if prior:
+                asset.update(prior)
+            break
         except (ValueError, OSError) as error:
             asset["status"] = "failed"
             asset["error"] = str(error)
             failures.append(f"{asset['name']}: {error}")
             if asset["platform"] == "metadata":
                 checksum_failed = True
+    if cancelled:
+        for asset in assets:
+            prior = priors.get(asset["path"])
+            if prior and asset["status"] != "verified" and not asset.get("error"):
+                asset.update(prior)
     # Also validate checksum/signature assets referenced by a later checksum document.
     for asset in assets:
         digest = published.get(asset["name"])
@@ -201,6 +216,8 @@ def sync_release(root: Path, plan: dict, downloader: Downloader) -> dict:
 def synchronize(root: Path, plans: list[dict], downloader: Downloader) -> list[dict]:
     reports = []
     for plan in plans:
+        if getattr(downloader, "cancel", None) is not None and downloader.cancel.is_set():
+            break
         try:
             reports.append(sync_release(root, plan, downloader))
         except (ValueError, OSError) as error:
