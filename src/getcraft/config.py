@@ -13,6 +13,11 @@ def default_path() -> Path:
 
 def load(path: Path) -> dict:
     data = tomllib.loads(path.read_text()) if path.exists() else {}
+    return validate(data)
+
+
+def validate(data: dict) -> dict:
+    """Validate an editable configuration before atomic persistence."""
     archive = data.setdefault("archive", {})
     root = Path(archive.setdefault("path", "~/SoftwareArchive")).expanduser().resolve()
     checkout = Path(__file__).resolve().parents[2]
